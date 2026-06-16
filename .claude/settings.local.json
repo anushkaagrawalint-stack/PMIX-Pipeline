@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile toast_pipeline/config.py)",
+      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/pipeline.yml'\\)\\)\")"
+    ]
+  }
+}

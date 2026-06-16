@@ -1,0 +1,55 @@
+name: pmix-pipeline
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # every hour
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Backfill start (YYYY-MM-DD, optional)"
+        required: false
+      end:
+        description: "Backfill end (YYYY-MM-DD, optional)"
+        required: false
+      mode:
+        description: "hourly or backfill"
+        required: false
+
+concurrency:
+  group: pmix-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Run pipeline
+        env:
+          TOAST_CLIENT_ID: ${{ secrets.TOAST_CLIENT_ID }}
+          TOAST_CLIENT_SECRET: ${{ secrets.TOAST_CLIENT_SECRET }}
+          LOCATIONS: ${{ secrets.LOCATIONS }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -n "${{ github.event.inputs.start }}" ]; then
+            python -m toast_pipeline.cli run \
+              --start "${{ github.event.inputs.start }}" \
+              --end "${{ github.event.inputs.end }}"
+          elif [ "${{ github.event.inputs.mode }}" = "hourly" ]; then
+            python -m toast_pipeline.cli run \
+              --start "$(date -u -d '3 hours ago' +%F)" \
+              --end "$(date -u +%F)"
+          else
+            python -m toast_pipeline.cli run
+          fi
+      - name: Reconciliation guard
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python scripts/check_reconciliation.py \
+            --start "$(date -d '3 days ago' +%F)" --end "$(date -d 'yesterday' +%F)"
