@@ -56,6 +56,12 @@ jobs:
           else
             python -m toast_pipeline.cli run
           fi
+      - name: Load Bikky data
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -m toast_pipeline.cli bikky-instore
+          python -m toast_pipeline.cli bikky-3pd
       - name: Reconciliation guard
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
