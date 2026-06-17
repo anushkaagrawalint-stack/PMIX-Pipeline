@@ -1,0 +1,26 @@
+name: bikky-load
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Data/Bikkydata/InStore/**.csv"
+      - "Data/Bikkydata/3PD+Loyalty/**.csv"
+  workflow_dispatch: {}
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Load Bikky data
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -m toast_pipeline.cli bikky-instore
+          python -m toast_pipeline.cli bikky-3pd
