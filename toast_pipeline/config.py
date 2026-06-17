@@ -17,6 +17,7 @@ PAGE_SIZE = 100
 MAX_REQ_PER_SEC = 5          # Toast limit is per-location; one worker per location
 DEFAULT_BACKPAD_DAYS = 2     # used by scheduled cron run to catch late edits/voids
 HOURLY_BACKPAD_HOURS = 3     # used by the dashboard refresh trigger (on-demand hourly pull)
+CATERING_VOID_WINDOW_DAYS = 30  # weekly catchup window to capture late catering cancellations
 MAX_WINDOW_DAYS = 45
 
 

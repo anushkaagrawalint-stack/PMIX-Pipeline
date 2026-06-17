@@ -2,7 +2,8 @@ name: pmix-pipeline
 
 on:
   schedule:
-    - cron: "0 * * * *"   # every hour
+    - cron: "0 10 * * *"   # daily 06:00 EDT (10:00 UTC)
+    - cron: "0 2 * * 0"    # every Sunday 02:00 UTC — void catchup
   workflow_dispatch:
     inputs:
       start:
@@ -14,6 +15,9 @@ on:
       mode:
         description: "hourly or backfill"
         required: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: pmix-pipeline
@@ -43,6 +47,11 @@ jobs:
           elif [ "${{ github.event.inputs.mode }}" = "hourly" ]; then
             python -m toast_pipeline.cli run \
               --start "$(date -u -d '3 hours ago' +%F)" \
+              --end "$(date -u +%F)"
+          elif [ "$(date -u +%u)" = "7" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+            # Sunday void-catchup: re-pull last 30 days to catch late catering cancellations
+            python -m toast_pipeline.cli run \
+              --start "$(date -u -d '30 days ago' +%F)" \
               --end "$(date -u +%F)"
           else
             python -m toast_pipeline.cli run
