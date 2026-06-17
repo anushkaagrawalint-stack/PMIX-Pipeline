@@ -1,0 +1,32 @@
+CREATE SCHEMA IF NOT EXISTS analytics;
+
+CREATE TABLE IF NOT EXISTS analytics.fact_bikky_instore (
+  fiscal_year          INT          NOT NULL,
+  period               INT          NOT NULL,
+  item_name            TEXT         NOT NULL,
+  item_id              TEXT,
+  revenue              NUMERIC(12,2),
+  revenue_per_loc      NUMERIC(12,2),
+  revenue_pct          NUMERIC(8,6),
+  volume               NUMERIC(10,0),
+  volume_per_loc       NUMERIC(10,2),
+  volume_pct           NUMERIC(8,6),
+  aov                  NUMERIC(10,2),
+  guests               NUMERIC(10,0),
+  return_rate          NUMERIC(8,6),
+  reorder_rate         NUMERIC(8,6),
+  prev_period_start    DATE,
+  prev_period_end      DATE,
+  revenue_prev         NUMERIC(12,2),
+  revenue_per_loc_prev NUMERIC(12,2),
+  revenue_pct_prev     NUMERIC(8,6),
+  volume_prev          NUMERIC(10,0),
+  volume_per_loc_prev  NUMERIC(10,2),
+  volume_pct_prev      NUMERIC(8,6),
+  aov_prev             NUMERIC(10,2),
+  guests_prev          NUMERIC(10,0),
+  return_rate_prev     NUMERIC(8,6),
+  reorder_rate_prev    NUMERIC(8,6),
+  loaded_at            TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  PRIMARY KEY (fiscal_year, period, item_name)
+);
