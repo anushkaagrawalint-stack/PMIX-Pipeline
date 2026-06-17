@@ -341,7 +341,7 @@ def cmd_bikky_instore(args: argparse.Namespace) -> None:
         glob="P*IS.csv",
         period_pattern=r"P(\d+)IS",
         sql_file="006_bikky_instore.sql",
-        table="analytics.fact_bikky_instore",
+        table="public.fact_bikky_instore",
         label="bikky-instore",
     )
 
@@ -352,7 +352,7 @@ def cmd_bikky_3pd(args: argparse.Namespace) -> None:
         glob="P*Del.csv",
         period_pattern=r"P(\d+)Del",
         sql_file="007_bikky_3pd_loyalty.sql",
-        table="analytics.fact_bikky_3pd_loyalty",
+        table="public.fact_bikky_3pd_loyalty",
         label="bikky-3pd",
     )
 
@@ -379,10 +379,10 @@ def main() -> None:
     sub.add_parser("merge").set_defaults(func=cmd_merge)
     sub.add_parser("validate").set_defaults(func=cmd_validate)
     sub.add_parser("bikky-instore",
-                   help="load all P*IS.csv from Data/Bikkydata/InStore/ into analytics.fact_bikky_instore"
+                   help="load all P*IS.csv from Data/Bikkydata/InStore/ into public.fact_bikky_instore"
                    ).set_defaults(func=cmd_bikky_instore)
     sub.add_parser("bikky-3pd",
-                   help="load all P*Del.csv from Data/Bikkydata/3PD+Loyalty/ into analytics.fact_bikky_3pd_loyalty"
+                   help="load all P*Del.csv from Data/Bikkydata/3PD+Loyalty/ into public.fact_bikky_3pd_loyalty"
                    ).set_defaults(func=cmd_bikky_3pd)
 
     args = p.parse_args()

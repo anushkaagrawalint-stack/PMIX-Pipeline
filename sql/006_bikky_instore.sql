@@ -1,6 +1,4 @@
-CREATE SCHEMA IF NOT EXISTS analytics;
-
-CREATE TABLE IF NOT EXISTS analytics.fact_bikky_instore (
+CREATE TABLE IF NOT EXISTS public.fact_bikky_instore (
   fiscal_year          INT          NOT NULL,
   period               INT          NOT NULL,
   item_name            TEXT         NOT NULL,
