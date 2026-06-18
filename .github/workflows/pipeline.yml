@@ -3,6 +3,7 @@ name: pmix-pipeline
 on:
   schedule:
     - cron: "0 10 * * *"   # daily 06:00 EDT (10:00 UTC)
+    - cron: "15 12 * * *"  # temporary test: 05:45 PM IST (12:15 UTC)
     - cron: "0 2 * * 0"    # every Sunday 02:00 UTC — void catchup
   workflow_dispatch:
     inputs:
