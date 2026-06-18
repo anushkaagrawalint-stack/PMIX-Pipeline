@@ -302,19 +302,10 @@ def _load_bikky_dir(data_dir: Path, glob: str, period_pattern: str,
     for path in files:
         m = re.match(period_pattern, path.stem, re.IGNORECASE)
         if not m:
-            log.warning("skipping %s — can't parse period from filename", path.name)
+            log.warning("skipping %s — can't parse period/year from filename", path.name)
             continue
         period = int(m.group(1))
-
-        fiscal_year = None
-        with path.open(newline="", encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                raw_date = row.get("Business date previous end", "").strip()
-                if raw_date:
-                    fiscal_year = date.fromisoformat(raw_date).year
-                    break
-        if fiscal_year is None:
-            raise SystemExit(f"{path.name}: could not derive fiscal_year — no prev_period_end values")
+        fiscal_year = int(m.group(2))
 
         rows = []
         with path.open(newline="", encoding="utf-8-sig") as f:
@@ -329,7 +320,7 @@ def _load_bikky_dir(data_dir: Path, glob: str, period_pattern: str,
             with conn.cursor() as cur:
                 cur.executemany(upsert, rows)
             conn.commit()
-        log.info("%s: %s period=%d fiscal_year=%d → %d rows upserted",
+        log.info("%s: %s period=%d year=%d → %d rows upserted",
                  label, path.name, period, fiscal_year, len(rows))
 
     conn.close()
@@ -339,7 +330,7 @@ def cmd_bikky_instore(args: argparse.Namespace) -> None:
     _load_bikky_dir(
         data_dir=_BIKKY_DATA_ROOT / "InStore",
         glob="P*IS.csv",
-        period_pattern=r"P(\d+)IS",
+        period_pattern=r"P(\d{2})(\d{4})IS",
         sql_file="006_bikky_instore.sql",
         table="public.fact_bikky_instore",
         label="bikky-instore",
@@ -350,11 +341,128 @@ def cmd_bikky_3pd(args: argparse.Namespace) -> None:
     _load_bikky_dir(
         data_dir=_BIKKY_DATA_ROOT / "3PD+Loyalty",
         glob="P*Del.csv",
-        period_pattern=r"P(\d+)Del",
+        period_pattern=r"P(\d{2})(\d{4})Del",
         sql_file="007_bikky_3pd_loyalty.sql",
         table="public.fact_bikky_3pd_loyalty",
         label="bikky-3pd",
     )
+
+
+_LOOKUP_DIR = Path(__file__).resolve().parents[1] / "Data" / "LookupData"
+
+
+def cmd_load_lookups(args: argparse.Namespace) -> None:
+    """Load all lookup Excel files into the lookup schema — no data dropped."""
+    import openpyxl
+
+    conn = db.connect()
+    sql_root = Path(__file__).resolve().parents[1] / "sql"
+
+    for sql_file in ["008_lookup_modifier_type.sql", "009_lookup_menu_breakdown.sql",
+                     "010_lookup_parent_item_type.sql", "011_lookup_item_name_map.sql"]:
+        conn.execute((sql_root / sql_file).read_text())
+    conn.commit()
+
+    # -------------------------------------------------------------------------
+    # Sheet 1: LookupItemAndModifierType.xlsx
+    # Section A (cols 6-8): modifier_name + item_type → modifier_type
+    # Section B (cols 10-11): parent_item + item_type
+    # -------------------------------------------------------------------------
+    wb = openpyxl.load_workbook(_LOOKUP_DIR / "LookupItemAndModifierType.xlsx")
+    ws = wb["Sheet1"]
+
+    modifier_rows, parent_rows = [], []
+    for row in ws.iter_rows(min_row=3, values_only=True):
+        mod_name  = str(row[5]).strip() if row[5] else None
+        item_type = str(row[6]).strip() if row[6] else None
+        mod_type  = str(row[7]).strip() if row[7] else None
+        if mod_name and item_type:
+            modifier_rows.append((mod_name, item_type, mod_type))
+
+        parent_item      = str(row[9]).strip()  if row[9]  else None
+        parent_item_type = str(row[10]).strip() if row[10] else None
+        if parent_item and parent_item_type:
+            parent_rows.append((parent_item, parent_item_type))
+
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO lookup.modifier_type (modifier_name, item_type, modifier_type)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (modifier_name, item_type) DO UPDATE SET
+                modifier_type = EXCLUDED.modifier_type,
+                loaded_at     = now()
+            """,
+            modifier_rows,
+        )
+        cur.executemany(
+            """
+            INSERT INTO lookup.parent_item_type (parent_item, item_type)
+            VALUES (%s, %s)
+            ON CONFLICT (parent_item, item_type) DO NOTHING
+            """,
+            parent_rows,
+        )
+    conn.commit()
+    log.info("load-lookups: lookup.modifier_type → %d rows upserted", len(modifier_rows))
+    log.info("load-lookups: lookup.parent_item_type → %d rows upserted", len(parent_rows))
+
+    # -------------------------------------------------------------------------
+    # Sheet 2: LookupMenuBreakdown.xlsx
+    # Section A (cols 1-2): raw_item_name → cleaned_item_name
+    # Section B (cols 4-5): cleaned_item_name → category_1
+    # Section C (cols 7-8): category_1 → category_2  (joined with B)
+    # -------------------------------------------------------------------------
+    wb2 = openpyxl.load_workbook(_LOOKUP_DIR / "LookupMenuBreakdown.xlsx")
+    ws2 = wb2["Sheet1"]
+
+    item_name_rows: dict[str, str] = {}
+    cat1_map: dict[str, str] = {}
+    cat2_map: dict[str, str] = {}
+
+    for row in ws2.iter_rows(min_row=3, values_only=True):
+        if row[0] and row[1]:
+            item_name_rows[str(row[0]).strip()] = str(row[1]).strip()
+        if row[3] and row[4]:
+            cat1_map[str(row[3]).strip()] = str(row[4]).strip()
+        if row[6] and row[7]:
+            cat2_map[str(row[6]).strip()] = str(row[7]).strip()
+
+    # item_name_map: every unique raw→cleaned pair
+    name_map_rows = list(item_name_rows.items())
+
+    # menu_breakdown: every unique cleaned name with its category chain
+    breakdown_rows = [
+        (cleaned, cat1, cat2_map.get(cat1))
+        for cleaned, cat1 in cat1_map.items()
+    ]
+
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO lookup.item_name_map (raw_item_name, cleaned_item_name)
+            VALUES (%s, %s)
+            ON CONFLICT (raw_item_name) DO UPDATE SET
+                cleaned_item_name = EXCLUDED.cleaned_item_name,
+                loaded_at         = now()
+            """,
+            name_map_rows,
+        )
+        cur.executemany(
+            """
+            INSERT INTO lookup.menu_breakdown (cleaned_item_name, category_1, category_2)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (cleaned_item_name) DO UPDATE SET
+                category_1 = EXCLUDED.category_1,
+                category_2 = EXCLUDED.category_2,
+                loaded_at  = now()
+            """,
+            breakdown_rows,
+        )
+    conn.commit()
+    log.info("load-lookups: lookup.item_name_map → %d rows upserted", len(name_map_rows))
+    log.info("load-lookups: lookup.menu_breakdown → %d rows upserted", len(breakdown_rows))
+    conn.close()
 
 
 def main() -> None:
@@ -384,6 +492,9 @@ def main() -> None:
     sub.add_parser("bikky-3pd",
                    help="load all P*Del.csv from Data/Bikkydata/3PD+Loyalty/ into public.fact_bikky_3pd_loyalty"
                    ).set_defaults(func=cmd_bikky_3pd)
+    sub.add_parser("load-lookups",
+                   help="load LookupItemAndModifierType.xlsx and LookupMenuBreakdown.xlsx into public"
+                   ).set_defaults(func=cmd_load_lookups)
 
     args = p.parse_args()
     args.func(args)
