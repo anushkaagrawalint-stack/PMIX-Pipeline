@@ -349,24 +349,25 @@ def cmd_bikky_3pd(args: argparse.Namespace) -> None:
 
 
 _LOOKUP_DIR = Path(__file__).resolve().parents[1] / "Data" / "LookupData"
+_R365_DATA_ROOT = Path(__file__).resolve().parents[1] / "Data" / "R365Data"
 
 
 def cmd_load_lookups(args: argparse.Namespace) -> None:
-    """Load all lookup Excel files into the lookup schema — no data dropped."""
+    """Load all lookup Excel files into the analytics schema — no data dropped."""
     import openpyxl
 
     conn = db.connect()
     sql_root = Path(__file__).resolve().parents[1] / "sql"
 
-    for sql_file in ["008_lookup_modifier_type.sql", "009_lookup_menu_breakdown.sql",
-                     "010_lookup_parent_item_type.sql", "011_lookup_item_name_map.sql"]:
+    for sql_file in ["008_analytics_modifier_type.sql", "009_analytics_parent_item_type.sql",
+                     "010_analytics_item_lookup.sql"]:
         conn.execute((sql_root / sql_file).read_text())
     conn.commit()
 
     # -------------------------------------------------------------------------
-    # Sheet 1: LookupItemAndModifierType.xlsx
-    # Section A (cols 6-8): modifier_name + item_type → modifier_type
-    # Section B (cols 10-11): parent_item + item_type
+    # LookupItemAndModifierType.xlsx
+    # Section F-H (cols 5-7): modifier_name + item_type → modifier_type
+    # Section J-K (cols 9-10): parent_item + item_type
     # -------------------------------------------------------------------------
     wb = openpyxl.load_workbook(_LOOKUP_DIR / "LookupItemAndModifierType.xlsx")
     ws = wb["Sheet1"]
@@ -387,7 +388,7 @@ def cmd_load_lookups(args: argparse.Namespace) -> None:
     with conn.cursor() as cur:
         cur.executemany(
             """
-            INSERT INTO lookup.modifier_type (modifier_name, item_type, modifier_type)
+            INSERT INTO analytics.modifier_type (modifier_name, item_type, modifier_type)
             VALUES (%s, %s, %s)
             ON CONFLICT (modifier_name, item_type) DO UPDATE SET
                 modifier_type = EXCLUDED.modifier_type,
@@ -397,71 +398,210 @@ def cmd_load_lookups(args: argparse.Namespace) -> None:
         )
         cur.executemany(
             """
-            INSERT INTO lookup.parent_item_type (parent_item, item_type)
+            INSERT INTO analytics.parent_item_type (parent_item, item_type)
             VALUES (%s, %s)
             ON CONFLICT (parent_item, item_type) DO NOTHING
             """,
             parent_rows,
         )
     conn.commit()
-    log.info("load-lookups: lookup.modifier_type → %d rows upserted", len(modifier_rows))
-    log.info("load-lookups: lookup.parent_item_type → %d rows upserted", len(parent_rows))
+    log.info("load-lookups: analytics.modifier_type → %d rows upserted", len(modifier_rows))
+    log.info("load-lookups: analytics.parent_item_type → %d rows upserted", len(parent_rows))
 
     # -------------------------------------------------------------------------
-    # Sheet 2: LookupMenuBreakdown.xlsx
-    # Section A (cols 1-2): raw_item_name → cleaned_item_name
-    # Section B (cols 4-5): cleaned_item_name → category_1
-    # Section C (cols 7-8): category_1 → category_2  (joined with B)
+    # LookupMenuBreakdown.xlsx → single analytics.item_lookup table
+    # Section A (cols 0-1): raw_item_name → cleaned_item_name
+    # Section B (cols 3-4): cleaned_item_name → category_1
+    # Section C (cols 6-7): category_1 → category_2
+    # Items in section B with no raw→cleaned entry are included as raw=cleaned.
     # -------------------------------------------------------------------------
     wb2 = openpyxl.load_workbook(_LOOKUP_DIR / "LookupMenuBreakdown.xlsx")
     ws2 = wb2["Sheet1"]
 
-    item_name_rows: dict[str, str] = {}
+    raw_to_cleaned: dict[str, str] = {}
     cat1_map: dict[str, str] = {}
     cat2_map: dict[str, str] = {}
 
     for row in ws2.iter_rows(min_row=3, values_only=True):
         if row[0] and row[1]:
-            item_name_rows[str(row[0]).strip()] = str(row[1]).strip()
+            raw_to_cleaned[str(row[0]).strip()] = str(row[1]).strip()
         if row[3] and row[4]:
             cat1_map[str(row[3]).strip()] = str(row[4]).strip()
         if row[6] and row[7]:
             cat2_map[str(row[6]).strip()] = str(row[7]).strip()
 
-    # item_name_map: every unique raw→cleaned pair
-    name_map_rows = list(item_name_rows.items())
+    item_lookup: dict[str, tuple] = {}
+    for raw, cleaned in raw_to_cleaned.items():
+        cat1 = cat1_map.get(cleaned)
+        item_lookup[raw] = (raw, cleaned, cat1, cat2_map.get(cat1) if cat1 else None)
 
-    # menu_breakdown: every unique cleaned name with its category chain
-    breakdown_rows = [
-        (cleaned, cat1, cat2_map.get(cat1))
-        for cleaned, cat1 in cat1_map.items()
-    ]
+    covered_cleaned = set(raw_to_cleaned.values())
+    for cleaned, cat1 in cat1_map.items():
+        if cleaned not in covered_cleaned:
+            item_lookup[cleaned] = (cleaned, cleaned, cat1, cat2_map.get(cat1))
+
+    item_lookup_rows = list(item_lookup.values())
 
     with conn.cursor() as cur:
         cur.executemany(
             """
-            INSERT INTO lookup.item_name_map (raw_item_name, cleaned_item_name)
-            VALUES (%s, %s)
+            INSERT INTO analytics.item_lookup
+                (raw_item_name, cleaned_item_name, category_1, category_2)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (raw_item_name) DO UPDATE SET
                 cleaned_item_name = EXCLUDED.cleaned_item_name,
+                category_1        = EXCLUDED.category_1,
+                category_2        = EXCLUDED.category_2,
                 loaded_at         = now()
             """,
-            name_map_rows,
-        )
-        cur.executemany(
-            """
-            INSERT INTO lookup.menu_breakdown (cleaned_item_name, category_1, category_2)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (cleaned_item_name) DO UPDATE SET
-                category_1 = EXCLUDED.category_1,
-                category_2 = EXCLUDED.category_2,
-                loaded_at  = now()
-            """,
-            breakdown_rows,
+            item_lookup_rows,
         )
     conn.commit()
-    log.info("load-lookups: lookup.item_name_map → %d rows upserted", len(name_map_rows))
-    log.info("load-lookups: lookup.menu_breakdown → %d rows upserted", len(breakdown_rows))
+    log.info("load-lookups: analytics.item_lookup → %d rows upserted", len(item_lookup_rows))
+    conn.close()
+
+
+def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
+    """Load all P*ModifierCost.xlsx from Data/R365Data/ModifierCost/ into analytics.r365_modifier_cost."""
+    import openpyxl
+
+    data_dir = _R365_DATA_ROOT / "ModifierCost"
+    files = sorted(data_dir.glob("P*ModifierCost.xlsx"))
+    if not files:
+        raise SystemExit(f"No P*ModifierCost.xlsx files found in {data_dir}")
+
+    conn = db.connect()
+    sql_path = Path(__file__).resolve().parents[1] / "sql" / "011_analytics_modifier_cost.sql"
+    conn.execute(sql_path.read_text())
+    conn.commit()
+
+    for path in files:
+        m = re.match(r"P(\d{2})(\d{4})ModifierCost", path.stem, re.IGNORECASE)
+        if not m:
+            log.warning("skipping %s — can't parse period/year from filename", path.name)
+            continue
+        period = f"P{m.group(1)}-{m.group(2)}"
+
+        wb = openpyxl.load_workbook(path)
+        ws = wb.active
+
+        seen: set[str] = set()
+        rows = []
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            recipe_name = str(row[0]).strip() if row[0] else None
+            if not recipe_name or recipe_name in seen:
+                continue
+            seen.add(recipe_name)
+
+            def _cost(val):
+                if val is None or str(val) == "#ERROR!":
+                    return None
+                try:
+                    return Decimal(str(val))
+                except InvalidOperation:
+                    return None
+
+            rows.append((
+                period,
+                recipe_name,
+                str(row[1]).strip() if row[1] else None,   # clean_name
+                str(row[14]).strip() if row[14] else None,  # portion_unit
+                str(row[16]).strip() if row[16] else None,  # cogs_account
+                _cost(row[25]),                             # total_cost
+                _cost(row[26]),                             # cost_per_portion
+            ))
+
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO analytics.r365_modifier_cost
+                    (period, recipe_name, clean_name, portion_unit, cogs_account,
+                     total_cost, cost_per_portion)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (period, recipe_name) DO UPDATE SET
+                    clean_name       = EXCLUDED.clean_name,
+                    portion_unit     = EXCLUDED.portion_unit,
+                    cogs_account     = EXCLUDED.cogs_account,
+                    total_cost       = EXCLUDED.total_cost,
+                    cost_per_portion = EXCLUDED.cost_per_portion,
+                    loaded_at        = now()
+                """,
+                rows,
+            )
+        conn.commit()
+        log.info("r365-modifier-cost: %s → %d rows upserted", path.name, len(rows))
+
+    conn.close()
+
+
+def cmd_load_r365_item_cost(args: argparse.Namespace) -> None:
+    """Load all P*ItemCost.xlsx from Data/R365Data/ItemCost/ into analytics.r365_item_cost."""
+    import openpyxl
+
+    data_dir = _R365_DATA_ROOT / "ItemCost"
+    files = sorted(data_dir.glob("P*ItemCost.xlsx"))
+    if not files:
+        raise SystemExit(f"No P*ItemCost.xlsx files found in {data_dir}")
+
+    conn = db.connect()
+    sql_path = Path(__file__).resolve().parents[1] / "sql" / "012_analytics_item_cost.sql"
+    conn.execute(sql_path.read_text())
+    conn.commit()
+
+    for path in files:
+        m = re.match(r"P(\d{2})(\d{4})ItemCost", path.stem, re.IGNORECASE)
+        if not m:
+            log.warning("skipping %s — can't parse period/year from filename", path.name)
+            continue
+        period = f"P{m.group(1)}-{m.group(2)}"
+
+        wb = openpyxl.load_workbook(path)
+        ws = wb["Sheet1"]
+
+        rows = []
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            menu      = str(row[0]).strip() if row[0] else None
+            item_name = str(row[2]).strip() if row[2] else None
+            if not menu or not item_name:
+                continue
+
+            raw_cost = str(row[6]).strip().lstrip("$") if row[6] else None
+            try:
+                avg_cost = Decimal(raw_cost) if raw_cost else None
+            except InvalidOperation:
+                avg_cost = None
+
+            rows.append((
+                period,
+                menu,
+                item_name,
+                str(row[3]).strip() if row[3] else None,  # item_name_updated
+                str(row[1]).strip() if row[1] else None,  # menu_group
+                str(row[4]).strip() if row[4] else None,  # category_1
+                str(row[5]).strip() if row[5] else None,  # category_2
+                avg_cost,
+            ))
+
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO analytics.r365_item_cost
+                    (period, menu, item_name, item_name_updated, menu_group,
+                     category_1, category_2, avg_cost)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (period, menu, item_name) DO UPDATE SET
+                    item_name_updated = EXCLUDED.item_name_updated,
+                    menu_group        = EXCLUDED.menu_group,
+                    category_1        = EXCLUDED.category_1,
+                    category_2        = EXCLUDED.category_2,
+                    avg_cost          = EXCLUDED.avg_cost,
+                    loaded_at         = now()
+                """,
+                rows,
+            )
+        conn.commit()
+        log.info("r365-item-cost: %s → %d rows upserted", path.name, len(rows))
+
     conn.close()
 
 
@@ -493,8 +633,14 @@ def main() -> None:
                    help="load all P*Del.csv from Data/Bikkydata/3PD+Loyalty/ into public.fact_bikky_3pd_loyalty"
                    ).set_defaults(func=cmd_bikky_3pd)
     sub.add_parser("load-lookups",
-                   help="load LookupItemAndModifierType.xlsx and LookupMenuBreakdown.xlsx into public"
+                   help="load LookupItemAndModifierType.xlsx and LookupMenuBreakdown.xlsx into analytics"
                    ).set_defaults(func=cmd_load_lookups)
+    sub.add_parser("r365-modifier-cost",
+                   help="load all P*ModifierCost.xlsx from Data/R365Data/ModifierCost/ into analytics.r365_modifier_cost"
+                   ).set_defaults(func=cmd_load_r365_modifier_cost)
+    sub.add_parser("r365-item-cost",
+                   help="load all P*ItemCost.xlsx from Data/R365Data/ItemCost/ into analytics.r365_item_cost"
+                   ).set_defaults(func=cmd_load_r365_item_cost)
 
     args = p.parse_args()
     args.func(args)
