@@ -72,22 +72,31 @@ def _as_list(payload, key: str) -> list[dict]:
     return [x for x in payload if isinstance(x, dict)]
 
 
-def _walk_groups(groups: list, m_name: str, parent_name: str, sink: dict) -> None:
+def _walk_groups(groups: list, m_name: str, parent_name: str, sink: dict,
+                 group_sink: dict | None = None,
+                 top_group: str | None = None) -> None:
     for grp in groups:
         if not isinstance(grp, dict):
             continue
         g_name = grp.get("name") or parent_name
+        # top_group is the level-1 group name — matches Toast Web "Menu Group" column.
+        # Nested subgroups inherit the top-level name so all items in a group
+        # consistently map to the same group regardless of nesting depth.
+        effective_top = top_group or g_name
+        if group_sink is not None and grp.get("guid"):
+            group_sink[grp["guid"]] = {"menu": m_name, "group": effective_top}
         for item in grp.get("menuItems") or []:
             if isinstance(item, dict) and item.get("guid"):
-                sink[item["guid"]] = {"menu": m_name, "group": g_name}
+                sink[item["guid"]] = {"menu": m_name, "group": effective_top}
         nested = grp.get("menuGroups") or grp.get("subgroups") or []
         if nested:
-            _walk_groups(nested, m_name, g_name, sink)
+            _walk_groups(nested, m_name, g_name, sink,
+                         group_sink=group_sink, top_group=effective_top)
 
 
 def build_lookups(cfg: dict[str, object]) -> dict[str, dict]:
     """Flatten config payloads into guid -> name lookup dicts."""
-    lk: dict[str, dict] = {"dining": {}, "menu": {}, "menu_group": {}, "sales_cat": {}, "alt_pay": {}}
+    lk: dict[str, dict] = {"dining": {}, "menu": {}, "menu_group": {}, "menu_group_guid": {}, "sales_cat": {}, "alt_pay": {}}
 
     for d in _as_list(cfg.get("dining_options"), "diningOptions"):
         lk["dining"][d.get("guid", "")] = d.get("name", "")
@@ -96,7 +105,8 @@ def build_lookups(cfg: dict[str, object]) -> dict[str, dict]:
         m_name = menu.get("name", "")
         if menu.get("guid"):
             lk["menu"][menu["guid"]] = m_name
-        _walk_groups(menu.get("menuGroups") or [], m_name, "", lk["menu_group"])
+        _walk_groups(menu.get("menuGroups") or [], m_name, "", lk["menu_group"],
+                     group_sink=lk["menu_group_guid"])
 
     for sc in _as_list(cfg.get("sales_categories"), "salesCategories"):
         lk["sales_cat"][sc.get("guid", "")] = sc.get("name", "")

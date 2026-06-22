@@ -83,7 +83,9 @@ def _parse_selection(sel: dict, out: ParsedOrder, order_guid: str, check_guid: s
     clean = normalize.clean_name(raw_name)
     voided = bool(sel.get("voided")) or check_voided
 
-    mg = lookups["menu_group"].get(item_guid, {})
+    item_group_guid = (sel.get("itemGroup") or {}).get("guid", "") or ""
+    mg = (lookups.get("menu_group_guid", {}).get(item_group_guid)
+          or lookups["menu_group"].get(item_guid, {}))
     out.lines.append({
         "selection_guid": sel_guid,
         "order_guid": order_guid,

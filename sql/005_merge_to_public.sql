@@ -49,7 +49,7 @@ SELECT
                 THEN 'TPD'
             WHEN s.dining_option ILIKE '%catering%' OR s.sales_category ILIKE '%catering%'
                 THEN 'CATERING'
-            WHEN s.menu_name ILIKE '%online%' OR s.menu_name ILIKE '%app%'
+            WHEN s.dining_option ILIKE '%open app%' OR s.dining_option ILIKE '%online ordering%'
                 THEN 'APP'
             ELSE 'IN_HOUSE'
         END),
