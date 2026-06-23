@@ -1,0 +1,3503 @@
+// ============================================================
+// RASA PMIX PIPELINE  Google Apps Script  v4
+// Full automation: Raw data  Clean MB  Clean Mod  Masters  Blended
+// Triggered via:  PMIX Pipeline menu
+//
+// INPUT SHEETS (paste fresh each month):
+//   Raw Menu Breakdown     Toast Menu Breakdown export
+//   Raw Modifiers          Toast Modifiers export
+//   Modifier costs         R365 recipe cost export
+//
+// PERMANENT LOOKUP SHEETS (update only when menu changes):
+//   Item Cost Lookup               item  channel  base Avg Cost (col G)
+//   Lookup_Menu Breakdown          raw name  clean name (cols AB)
+//                                  clean name  Cat1/Cat2 for slides (cols D/E/H)
+//   Lookup_Item and Modifier Types_ v2  modifier type lookup
+// ============================================================
+
+//  Sheet name constants 
+const SH = {
+  RAW_MB:        'Raw Menu Breakdown',
+  RAW_MOD:       'Raw Modifiers',
+  MOD_COSTS:     'Modifier costs',
+  LOOKUP_MB:     'Lookup_Menu Breakdown',
+  LOOKUP_TYPES:  'Lookup_Item and Modifier Types_v2',
+  ITEM_COST:     'Item Cost Lookup',
+  CLEAN_MB:      'Clean Menu Breakdown',
+  CLEAN_MOD:     'Clean Modifiers',
+  MASTER_BL:     'Menu Item Master with Cost - Bl',
+  MASTER_IN:     'Menu Item Master with Cost - In',
+  MASTER_LO:     'Menu Item Master with Cost - Lo',
+  MASTER_3P:     'Menu Item Master with Cost - 3P',
+  MASTER_OV:     'Menu Item Master with Cost - Ov',
+  BIKKY_IH_RAW:  'updated Bikky In store Raw Data',
+  BIKKY_IH_CLN:  'updated Bikky In store Clean Da',
+  BIKKY_3P_RAW:  'Updated Bikky Delivery + Pickup Raw Data',
+  BIKKY_3P_CLN:  'Bikky Delivery + Pickup Clean Da',
+};
+
+//  Excluded channels / groups 
+const EXCLUDED_MENUS = new Set([
+  'CATERING','CATERING - 3PD','OFFSITE POP-UPS'
+]);
+// Items excluded at the individual item level (regardless of channel)
+const EXCLUDED_ITEMS = new Set([
+  // No items currently excluded
+]);
+
+const EXCLUDED_GROUPS = new Set([
+  'Aramark','BAG TAX','Cater Cow','Catering Bundles',
+  'Catering Packages - BYO Bowl Bar','EzCater + Relish Individually Packaged Bowls',
+  'EzCater Additional Items','EzCater Catering Packages','EzCater Drinks',
+  'EzCater Sides + Sweets','Fooda','HUNGRY','Metz','Sharebite','Taher',
+  'TERRITORY','ZeroCater','Club Feast','Cureate','EF Tours','Eurest',
+  'Individually Packaged Bowls','Individually Packaged Indian Burritos',
+  'Individually Packaged Plates','Indian Burrito Boxes',
+  '3PD MARKUPS','Additional Items',
+]);
+
+//  Raw Menu  Clean channel 
+const MENU_CHANNEL_MAP = {
+  'DELIVERY':                     'DELIVERY',
+  '3PD OPEN MARKUP':              'DELIVERY',
+  'APP':                          'LOYALTY',
+  'FOOD - TOAST ONLINE ORDERING': 'LOYALTY',
+  'FOOD - IN HOUSE':              'IN HOUSE',
+  'DRINKS - IN HOUSE':            'IN HOUSE',
+};
+
+//  Business rules 
+const RATE_3PD_PRICE = 1.22;  // applied in Step 3 master only
+const RATE_3PD_COST  = 1.18;  // applied in Step 3 master only
+
+//  BYO name fixes (Toast omits "BYO" prefix) 
+const BYO_NAME_MAP = {
+  // DELIVERY / LOYALTY raw names (Toast omits BYO prefix)
+  'Grain Bowl':                         'BYO Grain Bowl',
+  'Salad Bowl':                         'BYO Salad Bowl',
+  'Greens + Grains Bowl':               'BYO Greens + Grains Bowl',
+  // IN HOUSE raw names (different Toast export format)
+  'Grain Bowl - In House':              'BYO Grain Bowl',
+  'Salad Bowl - In House':              'BYO Salad Bowl',
+  'Greens + Grains Bowl - In House':    'BYO Greens + Grains Bowl',
+  'byo Grain Bowl - In House':          'BYO Grain Bowl',
+  'byo Salad Bowl - In House':          'BYO Salad Bowl',
+  'byo Greens + Grains Bowl - In House':'BYO Greens + Grains Bowl',
+  // Cauliflower naming variants
+  'Cauliflower + Quinoa - In House':    'Spiced Cauli + Quinoa Bowl',
+  'Cauliflower + Quinoa Bowl':          'Spiced Cauli + Quinoa Bowl',
+  // Other IN HOUSE mapped names
+  'Burrito - In House':                 'BYO Indian Burrito',
+  // 'Kids BYO - In House' is a parent name handled by rawIH, not a modifier name
+  'Maine Root Fountain Soda - In House':'Maine Root Fountain Soda',
+  'Homemade Juice - In House':          'Homemade Juice',
+};
+
+//  Menu Group  Master Category (derived from Raw MB MenuGroup) 
+const GRP_TO_CATEGORY = {
+  'BOWLS':                'Entrees',
+  'BUILD YOUR OWN BOWL':  'Entrees',
+  'BYO':                  'Entrees',
+  'PLATES':               'Entrees',
+  'CLASSIC INDIAN PLATES':'Entrees',
+  'BURRITOS':             'Entrees',
+  'INDIAN BURRITOS':      'Entrees',
+  'CHEF CURATED BOWLS':   'Entrees',
+  'SIDES':                'Sides',
+  'DRINKS':               'NA Drinks',
+  'Cold Drinks':          'NA Drinks',
+  'Hot Drinks':           'NA Drinks',
+  'SWEETS':               'Sweets',
+  'KIDS':                 'Kids Meal',
+  'Beer':                 'Alc Drinks',
+  'Wine':                 'Alc Drinks',
+  'Liquor':               'Alc Drinks',
+  'Gameday':              'Alc Drinks',
+};
+
+//  Menu Group  Master SubCategory 
+const GRP_TO_SUBCATEGORY = {
+  'BOWLS':                'Bowl',
+  'BUILD YOUR OWN BOWL':  'Bowl',
+  'BYO':                  'Bowl',
+  'PLATES':               'Plates',
+  'CLASSIC INDIAN PLATES':'Plates',
+  'BURRITOS':             'Burrito',
+  'INDIAN BURRITOS':      'Burrito',
+  'CHEF CURATED BOWLS':   'Bowl',
+  'KIDS':                 'Kids Meal',
+  'Beer':                 'Beer',
+  'Wine':                 'Wine',
+  'Liquor':               'Liquor',
+  'Gameday':              'Gameday',
+};
+
+//  Item-level SubCategory for SIDES and DRINKS items 
+const ITEM_SUBCATEGORY = {
+  // SIDES
+  'Garlic Naan':                    'Bread',
+  'Naan':                           'Bread',
+  'Roti':                           'Bread',
+  'Mini Samosas':                   'Samosa',
+  'Samosa Chaat':                   'Samosa',
+  'Cucumber Raita':                 'Raita',
+  'Side of Main':                   'Main',
+  'Side of Grain':                  'Grain',
+  'Side of Veggie':                 'Veggie',
+  'Side of Sauce':                  'Sauce',
+  'Chips + Chutney':                'Chips',
+  'That Fire Hot Sauce - Side':     'Sauce Bottle',
+  'That Fire Hot Sauce (Bottle)':   'Sauce Bottle',
+  // DRINKS
+  'Mango Lassi':                    'Lassi',
+  'Strawberry Lassi':               'Lassi',
+  'Vanilla Mango Lassi Soft Serve': 'Lassi',
+  'Homemade Juice':                 'Juice',
+  'Maine Root Fountain Soda':       'Canned Soda',
+  'Olipop - Cola':                  'Canned Soda',
+  'Olipop - Lemon Lime':            'Canned Soda',
+  'Olipop - Root Beer':             'Canned Soda',
+  'Spindrift - Lemon':              'Canned Soda',
+  'Spindrift - Grapefruit':         'Canned Soda',
+  'LaCroix - Lime':                 'Canned Soda',
+  'LaCroix - Grapefruit':           'Canned Soda',
+  'Open Water Still Water':         'Water',
+  'Open Water Sparkling Water':     'Water',
+  'Wild Kombucha - Mango Peach':    'Kombucha',
+  'Wild Kombucha - Ginger':         'Kombucha',
+  'Masala Chai':                    'Chai',
+  'Masala Chai - Oat Milk':         'Chai',
+  'Blossom Lassi':                   'Lassi',
+  'Handcrafted Juice for a Group - 1/2 Gallon': 'Juice',
+  'Iced Oat Masala Chai':           'Chai',
+  'Icaro - Spearmint Yerba Mate':   'Chai',
+  'Fresh Young Coconut':            'Coconut',
+  // SWEETS
+  'Masala Chai Cookies':            'Cookies',
+  'Sweet Cardamom Yogurt':          'Yogurt',
+  'Swirl Soft Serve':               'Soft Serve',
+  'Mango Lassi Soft Serve':         'Soft Serve',
+  'Masala Chai Soft Serve':         'Soft Serve',
+  'Chocolate Chai Soft Serve':      'Chai',
+  'Spiked Lassi':                   'Liquor',
+  'Tamarind Margarita':             'Liquor',
+  'Pabst Blue Ribbon - Gameday':    'Gameday',
+};
+
+const ITEM_CATEGORY_OVERRIDE = {
+  'That Fire Hot Sauce (Bottle)': 'Retail',
+  'That Fire Hot Sauce - Side':   'Retail',
+};
+
+const ITEM_SUBCATEGORY_OVERRIDE = {
+  'BYO Indian Burrito': 'Burrito',
+};
+
+function getMasterCategory_(cleanName, menuGroup) {
+  if (ITEM_CATEGORY_OVERRIDE[cleanName] !== undefined) return ITEM_CATEGORY_OVERRIDE[cleanName];
+  return GRP_TO_CATEGORY[menuGroup] || '';
+}
+
+function getMasterSubCategory_(cleanName, menuGroup) {
+  if (ITEM_SUBCATEGORY_OVERRIDE[cleanName] !== undefined) return ITEM_SUBCATEGORY_OVERRIDE[cleanName];
+  if (ITEM_SUBCATEGORY[cleanName] !== undefined)          return ITEM_SUBCATEGORY[cleanName];
+  return GRP_TO_SUBCATEGORY[menuGroup] || '';
+}
+
+function getPinkCost_(itemName, channel) {
+  const ss   = SpreadsheetApp.getActiveSpreadsheet();
+  const isIH = (channel === 'IN HOUSE');
+
+  // Pink sheets are built from the BASE item name (item.name in _getPinkSheetItems_),
+  // never from the master row name. Some IH master rows carry a ' - In House' suffix
+  // (e.g. 'Saag Paneer - In House') while their pink sheet is named 'Saag Paneer(in house)'.
+  // Strip the suffix before constructing the IH sheet key.
+  const hadSuffix = itemName.endsWith(' - In House');
+  const baseName  = hadSuffix ? itemName.slice(0, -11) : itemName;
+
+  if (isIH) {
+    const ihKeyFull = baseName + '(in house)';
+    const ihKey     = ihKeyFull.length > 31 ? ihKeyFull.slice(0, 31) : ihKeyFull;
+    const ws        = ss.getSheetByName(ihKey);
+    if (ws) return _extractFinalCost_(ws);
+
+    // No dedicated in-house sheet found.
+    // Case 1 — item HAD a ' - In House' suffix: its IH sheet simply doesn't exist
+    //   (e.g. Chicken Curry - In House, Paneer Tikka Masala - In House). Return null
+    //   so the master uses Item Cost Lookup. Do NOT fall back to the online sheet —
+    //   online costs differ from in-house costs.
+    if (hadSuffix) return null;
+
+    // Case 2 — item has NO suffix and no IH sheet: this is a zero-baseCost item whose
+    //   modifiers are channel-agnostic (Sides, Homemade Juice, etc.). Its single online
+    //   pink sheet stores the weighted avg cost in col F and is valid for all channels.
+    const onlineKey = baseName.length > 31 ? baseName.slice(0, 31) : baseName;
+    const wsOn      = ss.getSheetByName(onlineKey);
+    if (!wsOn) return null;
+    return _extractFinalCost_(wsOn);
+  }
+
+  // Online channels (LOYALTY, DELIVERY)
+  const onlineKey = baseName.length > 31 ? baseName.slice(0, 31) : baseName;
+  const ws        = ss.getSheetByName(onlineKey);
+  if (!ws) return null;
+  return _extractFinalCost_(ws);
+}
+
+function _extractFinalCost_(ws) {
+  // Pink sheets are pre-allocated with 1000 rows, so ws.getLastRow() returns 1000
+  // even though data ends at row 6–120. Scanning backwards from row 1000 always
+  // hits empty cells and returns null. Read column A in one batch up to row 200
+  // (a safe ceiling above the largest pink sheet) and scan backwards for the label.
+  const maxScan = Math.min(ws.getLastRow(), 200);
+  const colA    = ws.getRange(1, 1, maxScan, 1).getValues();
+  for (let i = maxScan - 1; i >= 0; i--) {
+    const label = String(colA[i][0] || '').trim().toUpperCase();
+    if (label.includes('FINAL AVG COST WITH MODIFIER')) {
+      const val = ws.getRange(i + 1, 5).getValue();
+      if (typeof val === 'number' && val > 0) return val;
+    }
+  }
+  // Fallback: zero-baseCost items (Sides, Homemade Juice) store weighted avg in col F
+  const colF = ws.getRange(1, 6, maxScan, 1).getValues();
+  for (let i = maxScan - 1; i >= 0; i--) {
+    const val = colF[i][0];
+    if (typeof val === 'number' && val > 0) return val;
+  }
+  return null;
+}
+
+// 
+// STEP 0  Pre-flight Validation
+// 
+function stepValidateImports() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const ui  = SpreadsheetApp.getUi();
+
+  const rmSheet  = getSheet_(SH.RAW_MOD);
+  const mcSheet  = getSheet_(SH.MOD_COSTS);
+  const lkSheet  = getSheet_(SH.LOOKUP_TYPES);
+
+  const rmData   = rmSheet.getDataRange().getValues();
+  const mcData   = mcSheet.getDataRange().getValues();
+  const lkData   = lkSheet.getDataRange().getValues();
+
+  const modTypeMap = {};
+  const itemTypeMap = {};
+  for (let r = 1; r < lkData.length; r++) {
+    const mod   = String(lkData[r][0] || '').trim();
+    const itype = String(lkData[r][1] || '').trim();
+    const mtype = String(lkData[r][3] || '').trim();
+    const pItem = String(lkData[r][9]  || '').trim();
+    const pType = String(lkData[r][10] || '').trim();
+    if (mod && itype) modTypeMap[mod + '|' + itype] = mtype;
+    if (pItem && pType) itemTypeMap[pItem] = pType;
+  }
+
+  const KNOWN_MOD_OVERRIDES = new Set([
+    'Spicy Mango Chutney', 'Spicy Mango Chutney - Side',
+    'Sweet Tamarind Chutney', 'Sweet Tamarind Chutney - Side',
+    'Kokum Vinaigrette - Side', 'Chili Lime Vinaigrette - Side',
+    'Mint Cilantro Chutney - Side', 'Toasted Cumin Yogurt - Side',
+    'Ginger Tamarind Chutney - Side', 'That Fire Hot Sauce (Bottle)',
+    'That Fire Hot Sauce - Side',
+    'Chicken Curry', 'Lamb Kofta Korma', 'Paneer Tikka Masala',
+    'Mint Cardamom Limeade', 'Mint Cardamon Limeade',
+    'Extra Spicy Chili Chicken', 'Extra Organic Tandoori Paneer',
+    'Organic Tandoori Paneer',
+    'Butter Chicken - Pick 2 Combo', 'Saag Paneer - Pick 2 Combo',
+    'Aloo Gobhi - Pick 2 Combo', 'Coconut Veggie Curry - Pick 2 Combo',
+    'Paneer Tikka Masala - Pick 2 Combo', 'Lamb Kofta Korma - Pick 2 Combo',
+    'Saag Chole - Pick 2 Combo', 'Chicken Tikka Masala - Pick 2 Combo',
+    'Paneer Butter Masala - Pick 2 Combo', 'Chicken Curry - Pick 2 Combo',
+    'Saag Paneer', 'Saag Chole', 'Coconut Veggie Curry', 'Chicken Tikka Masala',
+    'Butter Chicken', 'Aloo Gobhi', 'Paneer Butter Masala',
+    'HUNGRY Harvest Vegetables',
+  ]);
+
+  const nameMap = {};
+  for (let r = 1; r < mcData.length; r++) {
+    const recName = String(mcData[r][0] || '').trim();
+    const cleanNm = String(mcData[r][1] || '').trim();
+    if (recName.startsWith('MI ') && cleanNm) {
+      const raw = recName.slice(3);
+      if (!nameMap[raw]) nameMap[raw] = cleanNm;
+    }
+  }
+
+  const issues = {
+    unknownParent:    [],
+    unknownModType:   [],
+    unknownCost:      [],
+    newRenames:       [],
+  };
+
+  const costMap = {};
+  for (let r = 1; r < mcData.length; r++) {
+    const recName = String(mcData[r][0] || '').trim();
+    if (!recName.startsWith('MI ')) continue;
+    const cleanNm = String(mcData[r][1] || '').trim();
+    const cost    = mcData[r][25];
+    if (cleanNm && typeof cost === 'number' && cost > 0) {
+      if (!(cleanNm in costMap) || cost > costMap[cleanNm]) costMap[cleanNm] = cost;
+    }
+  }
+
+  const seenParentWarn  = new Set();
+  const seenModWarn     = new Set();
+  const seenCostWarn    = new Set();
+  const EXCLUDED_CATS = new Set([
+    'Catering', 'Catering - Additonal Side', 'Catering - Side', 'Catering - Sharebite',
+    'BYO Grain Bowl - Catering', 'BYO Greens and Grains Bowl - Catering',
+    'BYO Salad Bowl - Catering', 'Set Bowl - Catering',
+    'ZeroCater', 'Cocktail', 'Canned Soda', 'Hungry',
+  ]);
+  const EXCLUDED_PARENTS = new Set([
+    'Sharebite Cauliflower + Quinoa Bowl', 'Sharebite Classic', 'Sharebite The Desi Deluxe',
+    'Tandoori Paneer Bowl - Club Feast', 'Grain Bowl - Club Feast', 'Salad Bowl - Club Feast',
+    'Lamb Kebab Bowl - Catering',
+    'Chicken Tikka Masala Tray', 'Paneer Tikka Masala Tray', 'Butter Chicken Tray', 'Lamb Kofta Korma Tray',
+    'Handcrafted Juice for a Group - 1 Gallon',
+    'Indian Burrito Box for 9', 'Maine Root Fountain Soda', 'Maine Root Fountain Soda - In House',
+  ]);
+  function isExcludedParent(p) {
+    return EXCLUDED_PARENTS.has(p) ||
+      /sharebite/i.test(p) || /club feast/i.test(p) ||
+      /\btray\b/i.test(p) || /^hungry/i.test(p) ||
+      /catering/i.test(p) || /- catering$/i.test(p) ||
+      /for a group/i.test(p) || /box for \d/i.test(p);
+  }
+
+  for (let r = 1; r < rmData.length; r++) {
+    const modName  = String(rmData[r][0] || '').trim();
+    const parent   = String(rmData[r][1] || '').trim();
+    const menuGrp  = String(rmData[r][2] || '').trim();
+    const qty      = Number(rmData[r][3]) || 0;
+    if (!modName || !parent || qty === 0) continue;
+    if (menuGrp === '-' && parent === '-') continue;
+
+    const itype = itemTypeMap[parent] || '';
+    const PARENT_ALIAS_TYPES = {
+      'Spiced Cauli + Quinoa Bowl': 'Set Bowl - Online',
+      'Cauliflower + Quinoa Bowl':  'Set Bowl - Online',
+      'Grain Bowl':                 'BYO Grain Bowl - Online',
+      'Grain Bowl - In House':      'BYO Grain Bowl - In House',
+      'Salad Bowl':                 'BYO Salad Bowl - Online',
+      'Salad Bowl - In House':      'BYO Salad Bowl - In House',
+      'Greens + Grains Bowl':       'BYO Greens and Grains Bowl - Online',
+      'Greens + Grains Bowl - In House': 'BYO Greens and Grains Bowl - In House',
+    };
+    const effectiveType = itype || PARENT_ALIAS_TYPES[parent] || '';
+
+    if (!effectiveType) {
+      if (isExcludedParent(parent)) continue;
+      if (!seenParentWarn.has(parent)) {
+        seenParentWarn.add(parent);
+        issues.unknownParent.push({ parent, qty, sample: modName });
+      }
+      continue;
+    }
+    if (EXCLUDED_CATS.has(effectiveType)) continue;
+    if (/^hungry/i.test(effectiveType)) continue;
+
+    const cleanMod = nameMap[modName] || modName;
+    const mtKey    = cleanMod + '|' + effectiveType;
+    const mtKey2   = modName  + '|' + effectiveType;
+    if (/utensil|plastic bag|\bbag\b|disposable|\byes\b.*please/i.test(cleanMod)) continue;
+    const cleanModBase = cleanMod.startsWith('Organic ') ? cleanMod.slice(8) : cleanMod;
+    const mtKey3 = cleanModBase + '|' + effectiveType;
+    const isPickCombo = cleanMod.endsWith(' - Pick 2 Combo') || modName.endsWith(' - Pick 2 Combo');
+    const hasMtype = modTypeMap[mtKey] || modTypeMap[mtKey2] || modTypeMap[mtKey3] ||
+                     KNOWN_MOD_OVERRIDES.has(cleanMod) || KNOWN_MOD_OVERRIDES.has(modName) ||
+                     isPickCombo ||
+                     /utensil|bag|disposable|please include/i.test(cleanMod) ||
+                     /^yes\|/i.test(cleanMod) ||
+                     cleanMod.toLowerCase().startsWith('skip') ||
+                     cleanMod.toLowerCase().startsWith('no ');
+    if (!hasMtype && !seenModWarn.has(cleanMod + '|' + effectiveType)) {
+      seenModWarn.add(cleanMod + '|' + effectiveType);
+      issues.unknownModType.push({ modifier: modName, cleanName: cleanMod, itemType: effectiveType, qty });
+    }
+
+    const costKey  = cleanMod;
+    const bExtra  = cleanMod.startsWith('Extra ') ? costMap[cleanMod.slice(6)] : null;
+    const bHalf    = cleanMod.startsWith('1/2 ')   ? costMap[cleanMod.slice(4).replace(/^and /,'')] : null;
+    const bSide    = cleanMod.endsWith(' - Side')  ? costMap[cleanMod.slice(0,-7)] : null;
+    const bAvocado = /^avocado/i.test(cleanMod)    ? costMap['Avocado'] : null;
+    const bOrganic  = cleanMod.startsWith('Organic ') ? costMap[cleanMod.slice(8)] : null;
+    const bCombo    = cleanMod.endsWith(' - Pick 2 Combo')
+                      ? costMap[cleanMod.slice(0,-15).trim()] : null;
+    const isPlateMain   = /^(Butter Chicken|Saag Paneer|Saag Chole|Coconut Veggie Curry|Chicken Tikka Masala|Aloo Gobhi|Paneer Butter Masala|Chicken Curry|Lamb Kofta Korma|Paneer Tikka Masala)(\s*-\s*Pick 2 Combo)?$/.test(cleanMod);
+    const isComposite   = /^1\/2 and 1\/2 (Mains|Base|Grains|Greens)$/.test(cleanMod);
+    const isUtensil     = /utensil|plastic bag|bag|disposable|\byes\b.*please/i.test(cleanMod);
+    const hasCost = costMap[costKey] || costMap[modName] || bExtra || bHalf || bSide || bAvocado || bOrganic || bCombo ||
+                    isPlateMain || isComposite || isUtensil ||
+                    (cleanMod === 'Romaine') || (cleanMod === 'Tandoori Paneer') ||
+                    (cleanMod === 'Spicy Mango Chutney') || (cleanMod === 'Spicy Mango Chutney - Side') ||
+                    cleanMod.toLowerCase().startsWith('skip') ||
+                    cleanMod.toLowerCase().startsWith('no ') ||
+                    cleanMod.toLowerCase().startsWith('grand total') ||
+                    /^yes\|/i.test(cleanMod);
+    if (!hasCost && !seenCostWarn.has(cleanMod)) {
+      seenCostWarn.add(cleanMod);
+      issues.unknownCost.push({ modifier: modName, cleanName: cleanMod, itemType: effectiveType, qty });
+    }
+  }
+
+  const KNOWN_RENAMES = new Set([
+    '1/2 Chicken Tikka', '1/2 Harvest Veggies', '1/2 Romaine',
+    'Chili Lime Vinaigrette Dressing', 'Coconut Ginger Sauce',
+    'Harvest Veggies', 'Harvest Veggies - Kids', 'Kokum Vinaigrette Dressing',
+    'Lamb Kebab Meatballs', 'Mint Cardamom Limeade', 'Peanut Sesame Sauce',
+    'Romaine', 'Sauteed Spinach', 'Shredded Paneer',
+    'Tamarind Chili Sauce', 'Tamarind Ginger Chutney', 'Tandoori Paneer',
+    'That Fire Hot Sauce', 'That Fire Hot Sauce - Bottle',
+    'Tikka Masala Sauce', 'Tomato Garlic Sauce',
+  ]);
+  function normStr(s) {
+    return s.toLowerCase().replace(/[\u00C0-\u024F]/g, function(c) {
+      return c.normalize ? c.normalize('NFD').replace(/[\u0300-\u036f]/g,'') : c;
+    }).trim();
+  }
+  for (let r = 1; r < mcData.length; r++) {
+    const recName = String(mcData[r][0] || '').trim();
+    const cleanNm = String(mcData[r][1] || '').trim();
+    if (recName.startsWith('MI ') && cleanNm) {
+      const raw = recName.slice(3);
+      if (raw !== cleanNm && !KNOWN_RENAMES.has(raw) && normStr(raw) !== normStr(cleanNm)) {
+        issues.newRenames.push({ r365Name: raw, cleanName: cleanNm });
+      }
+    }
+  }
+
+  const REPORT_NAME = 'Step 0 - Validation Report';
+  let rptSheet = ss.getSheetByName(REPORT_NAME);
+  if (rptSheet) rptSheet.clearContents();
+  else rptSheet = ss.insertSheet(REPORT_NAME, 0);
+
+  const allOk = issues.unknownParent.length === 0 &&
+                issues.unknownModType.length === 0 &&
+                issues.unknownCost.length === 0 &&
+                issues.newRenames.length === 0;
+
+  rptSheet.getRange('A1:E1').merge().setValue('RASA PMIX  Step 0 Validation Report')
+    .setBackground('#1F4E79').setFontColor('#FFFFFF')
+    .setFontSize(14).setFontWeight('bold').setHorizontalAlignment('center');
+
+  const ts = new Date().toLocaleString();
+  rptSheet.getRange('A2:E2').merge()
+    .setValue((allOk ? 'PASS  No new exceptions found. Safe to run pipeline.' :
+               'ATTENTION  Exceptions found. Review below before running pipeline.') + '  (' + ts + ')')
+    .setBackground(allOk ? '#E2EFDA' : '#FFE699')
+    .setFontColor(allOk ? '#375623' : '#7F6000')
+    .setFontWeight('bold').setFontSize(10);
+
+  let r = 3;
+  const sections = [
+    { title: 'UNKNOWN PARENT ITEMS (' + issues.unknownParent.length + ')  Parent name not in Lookup or script aliases',
+      data: issues.unknownParent,
+      cols: ['Parent Item Name','Total Qty Ordered','Sample Modifier','Action Required'],
+      map: (x) => [x.parent, x.qty, x.sample, 'Add to Lookup col10/11 OR add to PARENT_ALIASES in script'],
+      bg: issues.unknownParent.length > 0 ? '#FFE0E0' : '#E2EFDA' },
+    { title: 'UNKNOWN MODIFIER TYPES (' + issues.unknownModType.length + ')  Modifier+ItemType not in Lookup or script overrides',
+      data: issues.unknownModType,
+      cols: ['Modifier (Toast)','Modifier (Clean Name)','Item Type','Qty','Action Required'],
+      map: (x) => [x.modifier, x.cleanName, x.itemType, x.qty, 'Add to Lookup col1/2/4 OR add to MODTYPE_OVERRIDES in script'],
+      bg: issues.unknownModType.length > 0 ? '#FFE0E0' : '#E2EFDA' },
+    { title: 'UNKNOWN MODIFIER COSTS (' + issues.unknownCost.length + ')  Modifier has no entry in Modifier costs (R365)',
+      data: issues.unknownCost,
+      cols: ['Modifier (Toast)','Modifier (Clean Name)','Item Type','Qty','Action Required'],
+      map: (x) => [x.modifier, x.cleanName, x.itemType, x.qty, 'Cost is missing in R365. Add to BATCH costs or hardcode in _getModCost_'],
+      bg: issues.unknownCost.length > 0 ? '#FFF2CC' : '#E2EFDA' },
+    { title: 'NEW MODIFIER NAME RENAMES (' + issues.newRenames.length + ')  R365 col A != col B (not yet in known renames list)',
+      data: issues.newRenames,
+      cols: ['R365 Recipe Name (col A stripped)','Clean Name (col B)','Action Required'],
+      map: (x) => [x.r365Name, x.cleanName, 'New rename detected. Verify it is intentional and add to KNOWN_RENAMES in script'],
+      bg: issues.newRenames.length > 0 ? '#FFF2CC' : '#E2EFDA' },
+  ];
+
+  sections.forEach(function(sec) {
+    rptSheet.getRange(r, 1, 1, 5).merge().setValue('  ' + sec.title)
+      .setBackground('#2E75B6').setFontColor('#FFFFFF').setFontWeight('bold').setFontSize(10);
+    r++;
+    if (sec.data.length === 0) {
+      rptSheet.getRange(r, 1, 1, 5).merge().setValue('   No issues found')
+        .setBackground('#E2EFDA').setFontColor('#375623').setFontStyle('italic');
+      r++;
+    } else {
+      sec.cols.forEach(function(col, i) {
+        rptSheet.getRange(r, i+1).setValue(col)
+          .setBackground('#BDD7EE').setFontWeight('bold').setFontSize(9);
+      });
+      r++;
+      sec.data.forEach(function(item) {
+        const vals = sec.map(item);
+        vals.forEach(function(v, i) {
+          rptSheet.getRange(r, i+1).setValue(v)
+            .setBackground(sec.bg).setFontSize(9).setWrap(true);
+        });
+        r++;
+      });
+    }
+    r++;
+  });
+
+  rptSheet.setColumnWidth(1, 220);
+  rptSheet.setColumnWidth(2, 180);
+  rptSheet.setColumnWidth(3, 160);
+  rptSheet.setColumnWidth(4, 80);
+  rptSheet.setColumnWidth(5, 280);
+  rptSheet.setRowHeight(1, 28);
+  rptSheet.setRowHeight(2, 22);
+
+  ss.setActiveSheet(rptSheet);
+  const msg = allOk
+    ? 'Validation PASSED. No new exceptions found.\nSafe to run the full pipeline.'
+    : 'Validation found ' +
+      (issues.unknownParent.length + issues.unknownModType.length +
+       issues.unknownCost.length + issues.newRenames.length) +
+      ' issue(s).\nReview the "Step 0 - Validation Report" sheet before running the pipeline.';
+  ui.alert('Step 0  Validation', msg, ui.ButtonSet.OK);
+}
+
+
+// 
+// STEP: Populate Bikky Return & Reorder Rates
+// 
+function stepPopulateBikky() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const ui  = SpreadsheetApp.getUi();
+
+  const SH_IH_RAW    = 'updated Bikky In store Raw Data';
+  const SH_DEL_RAW   = 'Updated Bikky Delivery + Pickup';
+  const SH_IH_MASTER = 'Menu Item Master with Cost - In';
+  const SH_LO_MASTER = 'Menu Item Master with Cost - Lo';
+
+  function findSheet(name) {
+    var exact = ss.getSheetByName(name);
+    if (exact) return exact;
+    var all = ss.getSheets();
+    var nameTrim = name.trim().toLowerCase();
+    var m = all.find(function(s) { return s.getName().trim().toLowerCase() === nameTrim; });
+    if (m) return m;
+    m = all.find(function(s) { return s.getName().trim().toLowerCase().indexOf(nameTrim) === 0 || nameTrim.indexOf(s.getName().trim().toLowerCase()) === 0; });
+    return m || null;
+  }
+
+  const ihRawSh  = findSheet(SH_IH_RAW);
+  const delRawSh = findSheet(SH_DEL_RAW);
+  if (!ihRawSh || !delRawSh) {
+    var found = ss.getSheets().map(function(s){return s.getName();}).join(', ');
+    ui.alert('Bikky Step',
+      'Cannot find Bikky raw data sheets.\n\n' +
+      'Required sheet names:\n' +
+      '  - "' + SH_IH_RAW + '" -> ' + (ihRawSh ? 'FOUND' : 'NOT FOUND') + '\n' +
+      '  - "' + SH_DEL_RAW + '" -> ' + (delRawSh ? 'FOUND' : 'NOT FOUND') + '\n\n' +
+      'Sheets in workbook:\n' + found,
+      ui.ButtonSet.OK);
+    return;
+  }
+
+  // Bikky exports use short display names that differ from the master sheet clean names.
+  // This map translates Bikky names -> master names for both IH and Delivery sheets.
+  const BIKKY_NAME_ALIASES = {
+    // BYO prefix missing in Bikky
+    'Grain Bowl':              'BYO Grain Bowl',
+    'Salad Bowl':              'BYO Salad Bowl',
+    'Greens + Grains Bowl':    'BYO Greens + Grains Bowl',
+    // IH-specific short names
+    'Burrito':                 'BYO Indian Burrito',
+    'Cauliflower + Quinoa':    'Spiced Cauli + Quinoa Bowl',
+    'Kids BYO':                'Kids Meal',
+    
+  };
+  function resolveBikkyName(rawName) {
+    return BIKKY_NAME_ALIASES[rawName] || rawName;
+  }
+
+  const ihRawData  = ihRawSh.getDataRange().getValues();
+  const ihBikkyMap = {};
+  for (let r = 1; r < ihRawData.length; r++) {
+    const rawName    = String(ihRawData[r][0] || '').trim();
+    const name       = resolveBikkyName(rawName);
+    const returnRate = ihRawData[r][10];
+    const reorderRate= ihRawData[r][11];
+    if (name && typeof returnRate === 'number') {
+      ihBikkyMap[name] = { returnRate, reorderRate: typeof reorderRate === 'number' ? reorderRate : null };
+    }
+  }
+
+  const delRawData  = delRawSh.getDataRange().getValues();
+  const delBikkyMap = {};
+  for (let r = 1; r < delRawData.length; r++) {
+    const rawName    = String(delRawData[r][0] || '').trim();
+    const name       = resolveBikkyName(rawName);
+    const returnRate = delRawData[r][10];
+    const reorderRate= delRawData[r][11];
+    if (name && typeof returnRate === 'number') {
+      delBikkyMap[name] = { returnRate, reorderRate: typeof reorderRate === 'number' ? reorderRate : null };
+    }
+  }
+
+  const ihMaster = ss.getSheetByName(SH_IH_MASTER);
+  let ihUpdated = 0, ihMissed = 0;
+  if (ihMaster) {
+    const ihData = ihMaster.getDataRange().getValues();
+    for (let r = 1; r < ihData.length; r++) {
+      const name = String(ihData[r][0] || '').trim();
+      if (!name) continue;
+      const found = ihBikkyMap[name];
+      if (found) {
+        ihMaster.getRange(r+1, 21).setValue(found.returnRate);
+        ihMaster.getRange(r+1, 22).setValue(found.reorderRate !== null ? found.reorderRate : '');
+        ihUpdated++;
+      } else {
+        ihMissed++;
+      }
+    }
+  }
+
+  const loMaster = ss.getSheetByName(SH_LO_MASTER);
+  let loUpdated = 0, loMissed = 0;
+  if (loMaster) {
+    const loData = loMaster.getDataRange().getValues();
+    for (let r = 1; r < loData.length; r++) {
+      const name = String(loData[r][0] || '').trim();
+      if (!name) continue;
+      const found = delBikkyMap[name];
+      if (found) {
+        loMaster.getRange(r+1, 21).setValue(found.returnRate);
+        loMaster.getRange(r+1, 22).setValue(found.reorderRate !== null ? found.reorderRate : '');
+        loUpdated++;
+      } else {
+        loMissed++;
+      }
+    }
+  }
+
+  const tdMaster = ss.getSheetByName('Menu Item Master with Cost - 3P');
+  let tdUpdated = 0, tdMissed = 0;
+  if (tdMaster) {
+    if (!tdMaster.getRange(1,21).getValue()) {
+      tdMaster.getRange(1,21).setValue('90 Day Item Return Rate')
+        .setFontWeight('bold').setBackground('#2E75B6').setFontColor('#FFFFFF');
+      tdMaster.getRange(1,22).setValue('90 Day Item Reorder Rate')
+        .setFontWeight('bold').setBackground('#2E75B6').setFontColor('#FFFFFF');
+    }
+    const tdData = tdMaster.getDataRange().getValues();
+    for (let r = 1; r < tdData.length; r++) {
+      const name = String(tdData[r][0] || '').trim();
+      if (!name) continue;
+      const found = delBikkyMap[name];
+      if (found) {
+        tdMaster.getRange(r+1, 21).setValue(found.returnRate);
+        tdMaster.getRange(r+1, 22).setValue(found.reorderRate !== null ? found.reorderRate : '');
+        tdUpdated++;
+      } else {
+        tdMissed++;
+      }
+    }
+    if (tdMaster.getLastRow() > 1)
+      tdMaster.getRange(2, 21, tdMaster.getLastRow()-1, 2).setNumberFormat('0.00%');
+  }
+
+  showToast_('Bikky: IH ' + ihUpdated + ' | Loyalty ' + loUpdated + ' | 3PD ' + tdUpdated + ' rates updated');
+  ui.alert('Bikky Step Complete',
+    'In House master: ' + ihUpdated + ' updated, ' + ihMissed + ' not found.\n' +
+    'Loyalty master:  ' + loUpdated + ' updated, ' + loMissed + ' not found.\n' +
+    '3PD master:      ' + tdUpdated + ' updated, ' + tdMissed + ' not found.\n\n' +
+    'Items not found in Bikky retain existing values.',
+    ui.ButtonSet.OK);
+}
+
+// 
+// STEP 7  Verify Results
+// 
+function stepVerifyResults() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const ui  = SpreadsheetApp.getUi();
+  const TOL = 0.01;
+
+  const cmbSh = ss.getSheetByName(SH.CLEAN_MB);
+  if (!cmbSh) { ui.alert('Verify Results', 'Run pipeline first.', ui.ButtonSet.OK); return; }
+  const cmbData = cmbSh.getDataRange().getValues();
+  const cmb = { IH: {}, LO: {}, '3PD': {} };
+  for (let r = 1; r < cmbData.length; r++) {
+    const menu  = String(cmbData[r][0] || '').trim().toUpperCase();
+    const clean = String(cmbData[r][9] || '').trim();
+    const qty   = Number(cmbData[r][5])  || 0;
+    const sales = Number(cmbData[r][8])  || 0;
+    const cost  = Number(cmbData[r][15]) || 0;
+    if (!clean || qty === 0) continue;
+    let ch = menu === 'IN HOUSE' ? 'IH' : menu === 'LOYALTY' ? 'LO' : menu === 'DELIVERY' ? '3PD' : null;
+    if (!ch) continue;
+    if (!cmb[ch][clean]) cmb[ch][clean] = { qty: 0, netSales: 0, totalCost: 0 };
+    cmb[ch][clean].qty += qty; cmb[ch][clean].netSales += sales; cmb[ch][clean].totalCost += cost;
+  }
+
+  const pinkCosts = {};
+  ss.getSheets().forEach(function(ws) {
+    if (/menu item master|clean |raw |lookup|step|bikky|validation|blended|overall|pivot|helper|tables|rough|average costs/i.test(ws.getName())) return;
+    const c = _extractFinalCost_(ws);
+    if (c && c > 0) pinkCosts[ws.getName()] = c;
+  });
+
+  const issues = [];
+  let checks = 0;
+
+  function flag(sheet, item, check, expected, actual) {
+    issues.push({ sheet: sheet, item: item, check: check, expected: String(expected), actual: String(actual) });
+  }
+
+  function checkMaster(shName, ch) {
+    const ws = ss.getSheetByName(shName);
+    if (!ws || ws.getLastRow() < 2) return;
+    const data = ws.getDataRange().getValues();
+    for (let r = 1; r < data.length; r++) {
+      const name = String(data[r][0] || '').trim();
+      if (!name || name.toUpperCase() === 'GRAND TOTAL' || name.startsWith('Avg Margin Threshold') || name.startsWith('Menu Mix Threshold')) continue;
+      const avgPrice = Number(data[r][1]) || 0;
+      const avgCost  = Number(data[r][2]) || 0;
+      const margin   = Number(data[r][3]) || 0;
+      const qty      = Number(data[r][4]) || 0;
+      const totCost  = Number(data[r][5]) || 0;
+      const netSales = Number(data[r][6]) || 0;
+      const cogs     = Number(data[r][8]) || 0;
+      const pctMgn   = Number(data[r][9]) || 0;
+      checks++;
+
+      if (qty > 0 && Math.abs(netSales / qty - avgPrice) > TOL)
+        flag(shName, name, 'Avg Price = Net Sales / Qty', (netSales/qty).toFixed(4), avgPrice.toFixed(4));
+
+      if (qty > 0 && avgCost > 0 && Math.abs(avgCost * qty - totCost) > 1.0)
+        flag(shName, name, 'Total Cost = Avg Cost * Qty', (avgCost*qty).toFixed(2), totCost.toFixed(2));
+
+      if (netSales > 0 && Math.abs(totCost / netSales - cogs) > 0.001)
+        flag(shName, name, 'COGS% = Total Cost / Net Sales', (totCost/netSales).toFixed(4), cogs.toFixed(4));
+
+      if (cogs > 0 && pctMgn > 0 && Math.abs(1 - cogs - pctMgn) > 0.001)
+        flag(shName, name, '% Margin = 1 - COGS%', (1-cogs).toFixed(4), pctMgn.toFixed(4));
+
+      if (avgPrice > 0 && avgCost > 0 && Math.abs(avgPrice - avgCost - margin) > TOL)
+        flag(shName, name, 'Margin = Avg Price - Avg Cost', (avgPrice-avgCost).toFixed(4), margin.toFixed(4));
+
+      // FIX 3: Exempt items whose modifiers are all catering - no PMIX-channel cost exists
+      const CATERING_MODIFIER_ONLY_ITEMS = new Set([
+        'Side of Main', 'Side of Veggie', 'Side of Grain'
+      ]);
+      if (avgCost === 0 && qty > 0 && !CATERING_MODIFIER_ONLY_ITEMS.has(name))
+        flag(shName, name, 'Missing Avg Cost', 'non-zero', '0');
+
+      if (ch && ch !== 'BL' && ch !== 'OV' && avgCost > 0) {
+        let pink = null;
+        if (ch === 'IH') {
+          pink = pinkCosts[name + '(in house)'] ||
+                 pinkCosts[name + '(in hous)']  ||
+                 pinkCosts[name + '(in hou)']   || null;
+        } else if (ch === '3PD') {
+          const onlinePink = pinkCosts[name];
+          if (onlinePink) pink = onlinePink * 1.18;
+        } else {
+          pink = pinkCosts[name] || null;
+        }
+        if (pink && Math.abs(pink - avgCost) > 0.05)
+          flag(shName, name, 'Avg Cost matches Pink Sheet', pink.toFixed(4), avgCost.toFixed(4));
+      }
+
+      if (ch && cmb[ch]) {
+        if (cmb[ch][name]) {
+          if (Math.abs(qty - cmb[ch][name].qty) > 0.5)
+            flag(shName, name, 'Qty matches Clean MB', cmb[ch][name].qty, qty);
+        } else if (qty > 0) {
+          flag(shName, name, 'Item in Clean MB (' + ch + ')', 'present', 'NOT FOUND');
+        }
+      }
+    }
+  }
+
+  function checkBlended() {
+    const wsBl = ss.getSheetByName(SH.MASTER_BL);
+    const wsIH = ss.getSheetByName(SH.MASTER_IN);
+    const wsLO = ss.getSheetByName(SH.MASTER_LO);
+    const ws3P = ss.getSheetByName(SH.MASTER_3P);
+    if (!wsBl || !wsIH || !wsLO || !ws3P) return;
+    function qtyMap(ws) { const m = {}, d = ws.getDataRange().getValues(); for (let r=1;r<d.length;r++){const rawName=String(d[r][0]||'').trim(); if(!rawName) continue; const n=rawName.endsWith(' - In House')?rawName.slice(0,-11):rawName; m[n]=(m[n]||0)+(Number(d[r][4])||0);} return m; }
+    const ih = qtyMap(wsIH), lo = qtyMap(wsLO), td = qtyMap(ws3P);
+    const d  = wsBl.getDataRange().getValues();
+    for (let r = 1; r < d.length; r++) {
+      const name = String(d[r][0] || '').trim();
+      if (!name || name.toUpperCase() === 'GRAND TOTAL' || name.startsWith('Avg Margin Threshold') || name.startsWith('Menu Mix Threshold')) continue;
+      const blQty  = Number(d[r][4]) || 0;
+      const sumQty = (ih[name]||0) + (lo[name]||0) + (td[name]||0);
+      checks++;
+      if (Math.abs(blQty - sumQty) > 0.5)
+        flag(SH.MASTER_BL, name, 'Blended Qty = IH + LO + 3PD', sumQty, blQty);
+    }
+  }
+
+  function checkCoverage() {
+    const masterItems = new Set();
+    [SH.MASTER_IN, SH.MASTER_LO, SH.MASTER_3P].forEach(function(sn) {
+      const ws = ss.getSheetByName(sn);
+      if (!ws) return;
+      const d = ws.getDataRange().getValues();
+      for (let r=1;r<d.length;r++){const n=String(d[r][0]||'').trim();if(n)masterItems.add(n);}
+    });
+    Object.keys(cmb.IH).concat(Object.keys(cmb.LO), Object.keys(cmb['3PD'])).forEach(function(item) {
+      checks++;
+      if (!masterItems.has(item)) flag('Coverage', item, 'Item in masters', 'present', 'MISSING FROM ALL MASTERS');
+    });
+  }
+
+  function isCateringMod_(m) {
+    var n = m.toLowerCase();
+    return n.indexOf('catering')!=-1||n.indexOf('zerocater')!=-1||
+           n.indexOf('sharebite')!=-1||n.indexOf('ezcater')!=-1||n.indexOf('hungry')!=-1;
+  }
+  function isPinkDataRow_(label) {
+    if (!label) return false;
+    var l = String(label).trim();
+    if (l === l.toUpperCase() && l.indexOf(' - ') !== -1 && l.length > 20) return false;
+    var lower = l.toLowerCase();
+    var SKIP = ['grand total','no catering','modifier','total / average','average / total',
+                'avg cost','total modifier cost','total avg cost','modifier + avg cost',
+                'final avg cost with modifier','sum of qty'];
+    for (var si = 0; si < SKIP.length; si++) {
+      if (lower === SKIP[si] || lower.indexOf(SKIP[si]) === 0) return false;
+    }
+    return true;
+  }
+  function checkPinkSheetCoverage() {
+    var cmSheet2 = ss.getSheetByName(SH.CLEAN_MOD);
+    if (!cmSheet2) return;
+    var cmRows = cmSheet2.getDataRange().getValues();
+    // Build: "rawParent|itype" -> mod -> totalQty  (catering + utensils excluded)
+    var cmModMap = {};
+    for (var cr = 1; cr < cmRows.length; cr++) {
+      var cmod  = String(cmRows[cr][0]||'').trim();
+      var cpar  = String(cmRows[cr][1]||'').trim();
+      var citp  = String(cmRows[cr][2]||'').trim();
+      var cqty  = Number(cmRows[cr][5])||0;
+      var cmtp  = String(cmRows[cr][8]||'').trim();
+      if (!cmod||!cpar||cqty===0) continue;
+      if (!cmtp||cmtp==='NA') continue;
+      if (isCateringMod_(cmod)) continue;
+      if (/utensil|please include/i.test(cmod)) continue;
+      var ckey = cpar+'|'+citp;
+      if (!cmModMap[ckey]) cmModMap[ckey] = {};
+      cmModMap[ckey][cmod] = (cmModMap[ckey][cmod]||0) + cqty;
+    }
+    // For each pink sheet item compare CM mods vs pink sheet rows
+    var items2 = _getPinkSheetItems_();
+    items2.forEach(function(item) {
+      var variants = [];
+      if (item.typeOn && item.rawOn) variants.push({ shName: item.name.length>31?item.name.slice(0,31):item.name, rawPar: item.rawOn, itype: item.typeOn, label: item.name+' (Online)' });
+      if (item.typeIH && item.rawIH) { var sn=(item.name+'(in house)').length>31?(item.name+'(in house)').slice(0,31):item.name+'(in house)'; variants.push({ shName: sn, rawPar: item.rawIH, itype: item.typeIH, label: item.name+' (In House)' }); }
+      variants.forEach(function(v) {
+        var psWs = ss.getSheetByName(v.shName);
+        if (!psWs) return;
+        var cmKey2 = v.rawPar+'|'+v.itype;
+        var cmMods2 = cmModMap[cmKey2];
+        if (!cmMods2) return;
+        var totalCmQty2 = Object.keys(cmMods2).reduce(function(s,k){return s+cmMods2[k];},0);
+        if (totalCmQty2 === 0) return;
+        // Read pink sheet modifier qtys
+        var psData = psWs.getDataRange().getValues();
+        var psQtys = {};
+        psData.forEach(function(pr) {
+          // Col A (index 0) + col B (index 1): main section modifier rows
+          var plbl = String(pr[0]||'').trim();
+          var pqty = pr[1];
+          if (plbl && isPinkDataRow_(plbl) && typeof pqty === 'number' && pqty > 0) {
+            psQtys[plbl] = (psQtys[plbl]||0) + pqty;
+          }
+          // Col H (index 7) + col I (index 8): sub-table entries (1/2 Base, 1/2 Main).
+          // Since the standalone 1/2 BASES section is removed, these only appear in
+          // the sub-table — must read col H to avoid false-positive missing flags.
+          var slbl = pr[7] ? String(pr[7]).trim() : '';
+          var sqty = pr[8];
+          if (slbl && isPinkDataRow_(slbl) && typeof sqty === 'number' && sqty > 0) {
+            psQtys[slbl] = (psQtys[slbl]||0) + sqty;
+          }
+        });
+        // Flag modifiers missing or mismatched
+        Object.keys(cmMods2).forEach(function(mod2) {
+          var cmq = cmMods2[mod2];
+          var psq = psQtys[mod2]||0;
+          var pct = totalCmQty2 > 0 ? cmq/totalCmQty2 : 0;
+          checks++;
+          if (psq === 0) {
+            // Flag ALL missing modifiers regardless of qty
+            flag(v.shName, v.label, 'Pink Sheet Modifier Coverage', mod2+' ('+Math.round(cmq)+' qty, '+Math.round(pct*100)+'% of total)', 'MISSING');
+          } else if (psq > 0 && Math.abs(cmq-psq) > 2 && pct >= 0.05) {
+            // Flag qty mismatches only when diff is meaningful (>2 units AND >=5% of total)
+            flag(v.shName, v.label, 'Pink Sheet Modifier Coverage', mod2+' expected '+Math.round(cmq), 'got '+Math.round(psq));
+          }
+        });
+      });
+    });
+  }
+
+  checkMaster(SH.MASTER_IN, 'IH');
+  checkMaster(SH.MASTER_LO, 'LO');
+  checkMaster(SH.MASTER_3P, '3PD');
+  checkMaster(SH.MASTER_BL, 'BL');
+  checkBlended();
+  checkCoverage();
+  checkPinkSheetCoverage();
+
+  const RNAME = 'Step 7 - Verify Results';
+  let rpt = ss.getSheetByName(RNAME);
+  if (rpt) { rpt.clearContents(); rpt.clearFormats(); } else rpt = ss.insertSheet(RNAME, 1);
+  const allOk = issues.length === 0;
+  const ts = new Date().toLocaleString();
+
+  const issuesByCheck = {};
+  issues.forEach(function(i) { issuesByCheck[i.check] = (issuesByCheck[i.check] || 0) + 1; });
+
+  const CHECK_LIST = [
+    { name: 'Avg Price = Net Sales / Qty',    desc: 'Layer 1 | Internal math'    },
+    { name: 'Total Cost = Avg Cost * Qty',     desc: 'Layer 1 | Internal math'    },
+    { name: 'COGS% = Total Cost / Net Sales',  desc: 'Layer 1 | Internal math'    },
+    { name: '% Margin = 1 - COGS%',           desc: 'Layer 1 | Internal math'    },
+    { name: 'Margin = Avg Price - Avg Cost',   desc: 'Layer 1 | Internal math'    },
+    { name: 'Missing Avg Cost',                desc: 'Layer 1 | No blank costs'   },
+    { name: 'Qty matches Clean MB',           desc: 'Layer 2 | Cross-sheet qty'  },
+    { name: 'Avg Cost matches Pink Sheet',     desc: 'Layer 2 | Pink sheet cost'  },
+    { name: 'Blended Qty = IH + LO + 3PD',    desc: 'Layer 2 | Blended totals'   },
+    { name: 'Item in masters',                 desc: 'Layer 2 | Coverage'         },
+    { name: 'Pink Sheet Modifier Coverage',    desc: 'Layer 3 | All modifiers in pink sheet' },
+  ];
+
+  rpt.getRange('A1:E1').merge().setValue('RASA PMIX - Step 7: Verify Results')
+    .setBackground('#1F4E79').setFontColor('#FFFFFF').setFontSize(14)
+    .setFontWeight('bold').setHorizontalAlignment('center');
+  rpt.setRowHeight(1, 30);
+
+  rpt.getRange('A2:E2').merge()
+    .setValue((allOk ? 'ALL CHECKS PASSED' : 'ISSUES FOUND') + '  |  ' + checks + ' checks run  |  ' + issues.length + ' issue(s)  |  ' + ts)
+    .setBackground(allOk ? '#E2EFDA' : '#FFE699')
+    .setFontColor(allOk ? '#375623' : '#7F6000')
+    .setFontWeight('bold').setFontSize(10);
+  rpt.setRowHeight(2, 22);
+
+  var hRow = 3;
+  rpt.setRowHeight(hRow, 20);
+  [['', 1], ['Check', 2], ['Description', 3], ['Issues', 4], ['Status', 5]].forEach(function(h) {
+    rpt.getRange(hRow, h[1]).setValue(h[0])
+      .setBackground('#2E75B6').setFontColor('#FFFFFF')
+      .setFontWeight('bold').setFontSize(9).setHorizontalAlignment('center');
+  });
+
+  var nextRow = hRow + 1;
+  CHECK_LIST.forEach(function(chk) {
+    var cnt  = issuesByCheck[chk.name] || 0;
+    var pass = cnt === 0;
+    var bg   = pass ? '#E2EFDA' : '#FFE0E0';
+    rpt.setRowHeight(nextRow, 22);
+    rpt.getRange(nextRow, 1).insertCheckboxes().setValue(pass)
+      .setBackground(bg).setHorizontalAlignment('center');
+    rpt.getRange(nextRow, 2).setValue(chk.name)
+      .setBackground(bg).setFontSize(9).setFontWeight('bold');
+    rpt.getRange(nextRow, 3).setValue(chk.desc)
+      .setBackground(bg).setFontSize(9).setFontColor('#595959');
+    rpt.getRange(nextRow, 4).setValue(cnt === 0 ? '' : cnt + ' issue(s)')
+      .setBackground(bg).setFontSize(9).setHorizontalAlignment('center')
+      .setFontColor(pass ? '#375623' : '#C00000').setFontWeight(pass ? 'normal' : 'bold');
+    rpt.getRange(nextRow, 5).setValue(pass ? 'CHECKED' : 'REVIEW NEEDED')
+      .setBackground(pass ? '#375623' : '#C00000').setFontColor('#FFFFFF')
+      .setFontSize(9).setFontWeight('bold').setHorizontalAlignment('center');
+    nextRow++;
+  });
+
+  if (!allOk) {
+    nextRow++;
+    rpt.getRange(nextRow, 1, 1, 5).merge()
+      .setValue('  ISSUE DETAILS')
+      .setBackground('#1F4E79').setFontColor('#FFFFFF').setFontWeight('bold').setFontSize(11);
+    nextRow++;
+    const groups = {};
+    issues.forEach(function(i) { if (!groups[i.check]) groups[i.check] = []; groups[i.check].push(i); });
+    Object.keys(groups).forEach(function(chk) {
+      var grp = groups[chk];
+      rpt.getRange(nextRow, 1, 1, 5).merge()
+        .setValue('  ' + chk + ' (' + grp.length + ' issue(s))')
+        .setBackground('#2E75B6').setFontColor('#FFFFFF').setFontWeight('bold').setFontSize(10);
+      nextRow++;
+      ['Sheet', 'Item', 'Check', 'Expected', 'Actual'].forEach(function(h, i) {
+        rpt.getRange(nextRow, i+1).setValue(h)
+          .setBackground('#BDD7EE').setFontWeight('bold').setFontSize(9);
+      });
+      nextRow++;
+      grp.forEach(function(iss, idx) {
+        var bg = idx % 2 === 0 ? '#FFF2CC' : '#FFFBE6';
+        [iss.sheet, iss.item, iss.check, iss.expected, iss.actual].forEach(function(v, i) {
+          rpt.getRange(nextRow, i+1).setValue(v).setBackground(bg).setFontSize(9).setWrap(true);
+        });
+        nextRow++;
+      });
+      nextRow++;
+    });
+  }
+
+  rpt.setColumnWidth(1, 40);
+  rpt.setColumnWidth(2, 230);
+  rpt.setColumnWidth(3, 190);
+  rpt.setColumnWidth(4, 100);
+  rpt.setColumnWidth(5, 130);
+  rpt.setFrozenRows(3);
+  ss.setActiveSheet(rpt);
+  ui.alert('Step 7 - Verify Results',
+    allOk ? 'All ' + checks + ' checks passed.' : issues.length + ' issue(s) found.\nSee "Step 7 - Verify Results" sheet.',
+    ui.ButtonSet.OK);
+}
+
+
+
+
+// 
+// STEP 8  Build Visualization Sheets
+// 
+
+//  Colours 
+const VIZ = {
+  PURPLE:      '#7B2FBE',
+  PURPLE_LITE: '#EDE7F6',
+  PURPLE_MID:  '#D1C4E9',
+  WHITE:       '#FFFFFF',
+  RED_LITE:    '#FFCDD2',
+  GRAND_BG:    '#7B2FBE',
+  GRAND_FG:    '#FFFFFF',
+  HEADER_FG:   '#FFFFFF',
+};
+
+const VIZ_SH = {
+  BL: 'Tables & Graph - Blended',
+  IH: 'Tables & Graphs - INHOUSE',
+  LO: 'Tables & Graphs - Loyalty',
+  TD: 'Tables & Graphs 3PD',
+};
+
+function _masterCols_(hasBikky) {
+  return {
+    name: 1, avgPrice: 2, avgCost: 3, margin: 4, qty: 5, totCost: 6,
+    netSales: 7, totMgn: 8, cogs: 9, pctMgn: 10, pctMix: 11,
+    mgn2: 12, mix: 13, menuEng: 14,
+    cat: 15, subCat: 16, sls: 17, slsCat: 18, slsSubCat: 19,
+    returnRate: hasBikky ? 21 : null,
+    reorderRate: hasBikky ? 22 : null,
+  };
+}
+
+function _masterColsChannel_(ch) {
+  if (ch === 'BL') {
+    return {
+      name: 1, avgPrice: 2, avgCost: 3, margin: 4, qty: 5, totCost: 6,
+      netSales: 7, totMgn: 8, cogs: 9, pctMgn: 10, pctMix: 11,
+      mgn2: 12, mix: 13, menuEng: 14,
+      cat: 15, subCat: 16, sls: 17, slsCat: 18, slsSubCat: 19,
+      returnRate: null, reorderRate: null,
+    };
+  }
+  var hasBikky = (ch === 'IH' || ch === 'LO');
+  return {
+    name: 1, avgPrice: 2, avgCost: 3, margin: 4, qty: 5, totCost: 6,
+    netSales: 7, totMgn: 8, cogs: 9, pctMgn: 10, pctMix: 11,
+    mgn2: 12, mix: 13, menuEng: 14,
+    revCtr: 15, cat: 16, subCat: 17, sls: 18, slsCat: 19, slsSubCat: 20,
+    returnRate: hasBikky ? 21 : null,
+    reorderRate: hasBikky ? 22 : null,
+  };
+}
+
+function _readMaster_(ss, shName) {
+  var ws = ss.getSheetByName(shName);
+  if (!ws) return [];
+  return ws.getDataRange().getValues().slice(1);
+}
+
+function _normStr_(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+
+function _getOrReplace_(ss, name) {
+  var ws = ss.getSheetByName(name);
+  if (ws) {
+    ws.clearContents();
+    ws.clearFormats();
+    var charts = ws.getCharts();
+    charts.forEach(function(chart) { ws.removeChart(chart); });
+  } else {
+    ws = ss.insertSheet(name);
+  }
+  return ws;
+}
+
+function _writeTable_(ws, startRow, startCol, headers, data, opts) {
+  opts = opts || {};
+  var hBg  = opts.headerBg  || VIZ.PURPLE;
+  var hFg  = opts.headerFg  || VIZ.HEADER_FG;
+  var alt  = opts.altBg     || VIZ.PURPLE_LITE;
+  var gBg  = opts.grandBg   || VIZ.GRAND_BG;
+  var gFg  = opts.grandFg   || VIZ.GRAND_FG;
+  var nc   = headers.length;
+
+  var hRange = ws.getRange(startRow, startCol, 1, nc);
+  hRange.setValues([headers]);
+  hRange.setBackground(hBg).setFontColor(hFg).setFontWeight('bold').setFontSize(9);
+
+  if (!data || data.length === 0) return startRow + 1;
+
+  var paddedData = data.map(function(row) {
+    var r = row.slice(0, nc);
+    while (r.length < nc) r.push('');
+    return r;
+  });
+  var dataRange = ws.getRange(startRow + 1, startCol, paddedData.length, nc);
+  dataRange.setValues(paddedData);
+
+  for (var i = 0; i < data.length; i++) {
+    var r = startRow + 1 + i;
+    var isGrand = String(data[i][0] || '').toLowerCase().includes('grand total') ||
+                  String(data[i][0] || '').toLowerCase().includes('total / avg') ||
+                  String(data[i][0] || '').toLowerCase().includes('average / total');
+    var bg = isGrand ? gBg : (i % 2 === 0 ? VIZ.WHITE : alt);
+    var fg = isGrand ? gFg : '#000000';
+    var rowRange = ws.getRange(r, startCol, 1, nc);
+    rowRange.setBackground(bg).setFontColor(fg).setFontSize(9);
+    if (isGrand) rowRange.setFontWeight('bold');
+
+    if (opts.marginCol && !isGrand) {
+      var marginVal = data[i][opts.marginCol - 1];
+      if (typeof marginVal === 'number' && opts.avgMargin &&
+          marginVal < opts.avgMargin && marginVal > 0) {
+        ws.getRange(r, startCol + opts.marginCol - 1).setBackground(VIZ.RED_LITE);
+      }
+    }
+  }
+
+  (opts.pctCols || []).forEach(function(c) {
+    ws.getRange(startRow + 1, startCol + c - 1, data.length, 1).setNumberFormat('0.0%');
+  });
+  (opts.dollarCols || []).forEach(function(c) {
+    ws.getRange(startRow + 1, startCol + c - 1, data.length, 1).setNumberFormat('"$"0.00');
+  });
+  (opts.numCols || []).forEach(function(c) {
+    ws.getRange(startRow + 1, startCol + c - 1, data.length, 1).setNumberFormat('#,##0');
+  });
+
+  return startRow + 1 + data.length + 1;
+}
+
+var _chartZoneCounters_ = {};
+
+function _makeChart_(ws, type, startRow, startCol, numDataRows, numDataCols,
+                     chartRow, chartCol, chartWidth, chartHeight, title) {
+  var cleanRows = numDataRows;
+  while (cleanRows > 0) {
+    var checkRow = startRow + cleanRows;
+    var cellVal  = String(ws.getRange(checkRow, startCol).getValue() || '').toLowerCase();
+    if (cellVal.indexOf('total') !== -1 || cellVal.indexOf('average') !== -1 ||
+        cellVal.indexOf('grand') !== -1) {
+      cleanRows--;
+    } else { break; }
+  }
+  if (cleanRows < 1) return;
+
+  var shKey = ws.getName();
+  var stageIdx = (_chartZoneCounters_[shKey] !== undefined) ? _chartZoneCounters_[shKey] : 0;
+  var stageCol = 250 + stageIdx * 3;
+
+  var srcRows = cleanRows + 1;
+  if (type === 'STACKED_BAR') {
+    var stageCols = numDataCols;
+    // Read header row from the table (startRow) plus data rows (startRow+1 onwards)
+    // so the staged area has a real header row for series labels (Dog/Plow Horse/etc.)
+    var hdrVals  = ws.getRange(startRow, startCol, 1, stageCols).getValues();
+    var srcVals  = ws.getRange(startRow + 1, startCol, cleanRows, stageCols).getValues();
+    for (var ri = 0; ri < srcVals.length; ri++) {
+      for (var ci = 1; ci < srcVals[ri].length; ci++) {
+        var v = srcVals[ri][ci];
+        if (typeof v !== 'number') srcVals[ri][ci] = 0;
+      }
+    }
+    var stagedWithHdr = hdrVals.concat(srcVals);
+    ws.getRange(1, stageCol, stagedWithHdr.length, stageCols).setValues(stagedWithHdr);
+    var dataRange = ws.getRange(1, stageCol, stagedWithHdr.length, stageCols);
+    _chartZoneCounters_[shKey] += stageCols - 1;
+  } else {
+    var valueCol = (numDataCols >= 2) ? startCol + numDataCols - 1 : startCol + 1;
+    var labels = ws.getRange(startRow + 1, startCol, cleanRows, 1).getValues();
+    var values = ws.getRange(startRow + 1, valueCol,  cleanRows, 1).getValues();
+    // BAR and HBAR: multiply by 100 so axis shows 44 instead of 0.44.
+    // GAS Charts does not reliably support vAxis.format percent strings.
+    var pctScale = (type === 'BAR' || type === 'HBAR');
+    var staged = labels.map(function(row, i) {
+      var v = values[i][0];
+      if (typeof v !== 'number') v = 0;
+      return [row[0], pctScale ? Math.round(v * 10000) / 100 : v];
+    });
+    ws.getRange(1, stageCol, cleanRows, 2).setValues(staged);
+    var dataRange = ws.getRange(1, stageCol, cleanRows, 2);
+  }
+
+  var builder;
+  if (type === 'PIE') {
+    builder = ws.newChart()
+      .setChartType(Charts.ChartType.PIE)
+      .addRange(dataRange)
+      .setOption('title', title || '')
+      .setOption('titleTextStyle', { color: '#000000' })
+      .setOption('pieHole', 0)
+      .setOption('colors', ['#7B2FBE','#9C4FD4','#E91E63','#FF9800','#4CAF50','#2196F3',
+                             '#FF5722','#009688','#795548','#607D8B','#F44336','#8BC34A'])
+      .setOption('backgroundColor', '#EDE7F6')
+      .setOption('legend', { position: 'labeled', textStyle: { color: '#000000' } })
+      .setOption('useFirstColumnAsDomain', true)
+      .setNumHeaders(0);
+  } else if (type === 'BAR') {
+    builder = ws.newChart()
+      .setChartType(Charts.ChartType.COLUMN)
+      .addRange(dataRange)
+      .setOption('title', title || '')
+      .setOption('colors', ['#7B2FBE'])
+      .setOption('backgroundColor', '#EDE7F6')
+      .setOption('legend', { position: 'none' })
+      .setOption('useFirstColumnAsDomain', true)
+      .setNumHeaders(0);
+  } else if (type === 'HBAR') {
+    builder = ws.newChart()
+      .setChartType(Charts.ChartType.BAR)
+      .addRange(dataRange)
+      .setOption('title', title || '')
+      .setOption('colors', ['#7B2FBE'])
+      .setOption('backgroundColor', '#EDE7F6')
+      .setOption('legend', { position: 'none' })
+      .setOption('useFirstColumnAsDomain', true)
+      .setNumHeaders(0);
+  } else if (type === 'STACKED_BAR') {
+    builder = ws.newChart()
+      .setChartType(Charts.ChartType.COLUMN)
+      .addRange(dataRange)
+      .setOption('title', title || '')
+      .setOption('isStacked', true)
+      .setOption('colors', ['#2196F3','#F44336','#FF9800','#4CAF50'])
+      .setOption('backgroundColor', '#EDE7F6')
+      .setOption('legend', { position: 'top' })
+      .setOption('useFirstColumnAsDomain', true)
+      .setNumHeaders(1);  // 1 header row so series are labelled Dog/Plow Horse/Puzzle/Star
+  } else {
+    return;
+  }
+  var shKey = ws.getName();
+  if (!_chartZoneCounters_[shKey]) _chartZoneCounters_[shKey] = 0;
+  var idx     = _chartZoneCounters_[shKey]++;
+  var zoneRow = 300 + Math.floor(idx / 2) * 22;
+  var zoneCol = (idx % 2 === 0) ? 1 : 9;
+  builder
+    .setPosition(zoneRow, zoneCol, 0, 0)
+    .setOption('width', chartWidth || 500)
+    .setOption('height', chartHeight || 320);
+  ws.insertChart(builder.build());
+}
+
+function _buildModData_(ss, modTypes, bowlFilter, channelFilter) {
+  var ws = ss.getSheetByName(SH.CLEAN_MOD);
+  if (!ws) return {};
+  var rows = ws.getDataRange().getValues().slice(1);
+  var result = {};
+  rows.forEach(function(r) {
+    var mod   = String(r[0] || '').trim();
+    var itype = String(r[2] || '').trim();
+    var mtype = String(r[8] || '').trim();
+    var qty   = Number(r[5]) || 0;
+    if (!mod || !mtype || modTypes.indexOf(mtype) === -1) return;
+    if (channelFilter === 'IH'     && itype.indexOf('In House') === -1) return;
+    if (channelFilter === 'Online' && itype.indexOf('Online')   === -1) return;
+    bowlFilter.forEach(function(bf) {
+      if (itype.indexOf(bf.itype) !== -1) {
+        if (!result[mod]) result[mod] = {};
+        result[mod][bf.display] = (result[mod][bf.display] || 0) + qty;
+      }
+    });
+  });
+  return result;
+}
+
+function _buildModTable_(modData, bowlCols, costMap) {
+  var rows = [];
+  Object.keys(modData).forEach(function(mod) {
+    if (mod === 'Skip Main' || mod === 'Skip Base' || mod === '') return;
+    var rowQtys = bowlCols.map(function(bc) { return modData[mod][bc] || 0; });
+    var total   = rowQtys.reduce(function(a,b){return a+b;}, 0);
+    if (total === 0) return;
+    var costKey = mod.toLowerCase().replace(/[^a-z0-9]/g,'');
+    var cost    = costMap[costKey] || 0;
+    if (!cost) {
+      var altKey = mod.toLowerCase().replace(/1\/2/g,'half').replace(/[^a-z0-9]/g,'');
+      cost = costMap[altKey] || 0;
+    }
+    rows.push([mod, cost].concat(rowQtys).concat([total]));
+  });
+  rows.sort(function(a,b){ return b[b.length-1] - a[a.length-1]; });
+  var totRow = ['Total / Average', 0];
+  bowlCols.forEach(function(_, i) {
+    totRow.push(rows.reduce(function(s,r){return s+(r[2+i]||0);},0));
+  });
+  totRow.push(rows.reduce(function(s,r){return s+r[r.length-1];},0));
+  var avgCost = rows.length ? rows.reduce(function(s,r){return s+r[1];},0)/rows.length : 0;
+  totRow[1] = avgCost;
+  rows.push(totRow);
+  return rows;
+}
+
+function _buildCostMap_(ss) {
+  var ws = ss.getSheetByName(SH.MOD_COSTS);
+  if (!ws) return {};
+  var rows  = ws.getDataRange().getValues();
+  var map   = {};
+  rows.forEach(function(r) {
+    var colA = String(r[0] || '').trim();
+    var colB = String(r[1] || '').trim();
+    var cost = r[25];
+    if (colA.indexOf('MI ') !== 0 || !colB || typeof cost !== 'number' || cost <= 0) return;
+    var k = colB.toLowerCase().replace(/[^a-z0-9]/g,'');
+    if (!map[k] || cost > map[k]) map[k] = cost;
+  });
+  return map;
+}
+
+function stepBuildVizSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  showToast_('Step 8: Building visualization sheets...');
+  var costMap = _buildCostMap_(ss);
+  _buildVizSheet_(ss, 'BL', VIZ_SH.BL, costMap);
+  showToast_('Step 8: Built Blended viz sheet');
+  _buildVizSheet_(ss, 'IH', VIZ_SH.IH, costMap);
+  showToast_('Step 8: Built In-House viz sheet');
+  _buildVizSheet_(ss, 'LO', VIZ_SH.LO, costMap);
+  showToast_('Step 8: Built Loyalty viz sheet');
+  _buildVizSheet_(ss, '3P', VIZ_SH.TD, costMap);
+  showToast_('Step 8: Viz sheets complete');
+  SpreadsheetApp.getUi().alert('Step 8 Complete', 'All 4 visualization sheets rebuilt successfully.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+
+function _buildVizSheet_(ss, ch, vizShName, costMap) {
+  var ws  = _getOrReplace_(ss, vizShName);
+  _chartZoneCounters_[vizShName] = 0;
+  var C   = _masterColsChannel_(ch);
+  var masterShName = ch === 'BL' ? SH.MASTER_BL :
+                     ch === 'IH' ? SH.MASTER_IN :
+                     ch === 'LO' ? SH.MASTER_LO : SH.MASTER_3P;
+  var rows = _readMaster_(ss, masterShName);
+  if (!rows.length) return;
+
+  var allItems = [];
+  var catTotals    = {};
+  var subCatTotals = {};
+  var engTotals    = {};
+  var engCatMix    = {};
+
+  rows.forEach(function(r) {
+    var name   = String(r[C.name-1] || '').trim();
+    var cat    = String(r[C.cat-1]  || '').trim();
+    var sub    = String(r[C.subCat-1] || '').trim();
+    var eng    = String(r[C.menuEng-1] || '').trim();
+    var pctMix = Number(r[C.pctMix-1]) || 0;
+    var sls    = Number(r[C.sls-1])    || 0;
+    var slsCat = Number(r[C.slsCat-1]) || 0;
+    var slsSub = Number(r[C.slsSubCat-1]) || 0;
+    var pctMgn = Number(r[C.pctMgn-1]) || 0;
+    var avgPrc = Number(r[C.avgPrice-1]) || 0;
+    var cogs   = Number(r[C.cogs-1])   || 0;
+    var ret    = C.returnRate  ? (Number(r[C.returnRate-1])  || null) : null;
+    var reo    = C.reorderRate ? (Number(r[C.reorderRate-1]) || null) : null;
+    if (!name || name.toUpperCase() === 'GRAND TOTAL' || name.startsWith('Avg Margin Threshold') || name.startsWith('Menu Mix Threshold')) return;
+
+    var totMgn$ = Number(r[C.totMgn-1]) || 0;
+    var ns$     = Number(r[C.netSales-1]) || 0;
+    allItems.push({ name, cat, sub, eng, pctMix, sls, slsCat, slsSub, pctMgn, avgPrc, cogs, ret, reo, totMgn: totMgn$, ns: ns$ });
+
+    if (!catTotals[cat]) catTotals[cat] = {pctMix:0, sls:0, mgnSum:0, count:0, priceSum:0};
+    catTotals[cat].pctMix    += pctMix;
+    catTotals[cat].sls       += sls;
+    catTotals[cat].mgnSum    += pctMgn;
+    catTotals[cat].count     += 1;
+    catTotals[cat].priceSum  += avgPrc;
+
+    if (!subCatTotals[sub]) subCatTotals[sub] = 0;
+    subCatTotals[sub] += pctMix;
+
+    if (!engTotals[eng]) engTotals[eng] = {count:0, sls:0};
+    engTotals[eng].count += 1;
+    engTotals[eng].sls   += sls;
+
+    if (!engCatMix[cat]) engCatMix[cat] = {};
+    engCatMix[cat][eng] = (engCatMix[cat][eng] || 0) + pctMix;
+    if (!engCatMix[cat]._total) engCatMix[cat]._total = 0;
+    engCatMix[cat]._total += pctMix;
+  });
+
+  // Use SUM(Total Margin$) / SUM(Net Sales$) — the same formula used in the
+  // master sheet to classify High/Low margin. Using mean(pctMgn per item) instead
+  // diverges by 3-4pp and causes incorrect red highlighting in viz tables.
+  var sumTotMgn$ = allItems.reduce(function(s,it){return s+it.totMgn;},0);
+  var sumNs$     = allItems.reduce(function(s,it){return s+it.ns;},0);
+  var avgMgn     = sumNs$ > 0 ? sumTotMgn$ / sumNs$ : 0;
+
+  function byPctMixDesc(a,b) { return b.pctMix - a.pctMix; }
+  function bySlsDesc(a,b)    { return b.sls    - a.sls;    }
+  function byMgnDesc(a,b)    { return b.pctMgn - a.pctMgn; }
+  function byCogsDesc(a,b)   { return b.cogs   - a.cogs;   }
+  function byCatSlsDesc(a,b) { return b.slsCat - a.slsCat; }
+  function byCat(cat) { return allItems.filter(function(it){return it.cat===cat;}); }
+  function bySub(sub) { return allItems.filter(function(it){return it.sub===sub;}); }
+  function byEng(eng) { return allItems.filter(function(it){return it.eng===eng;}); }
+
+  var ROW = 1;
+  var colCursor  = 1;
+
+  // T01
+  var subcatRows = Object.keys(subCatTotals).map(function(s){return [s, subCatTotals[s]];}).sort(function(a,b){return b[1]-a[1];});
+  subcatRows.push(['Grand Total', subcatRows.reduce(function(s,r){return s+r[1];},0)]);
+  colCursor = 1;
+  _writeTable_(ws, ROW, colCursor, ['Sub Category', 'Total Menu Mix (% Qty)'], subcatRows, {pctCols:[2], grandBg:VIZ.PURPLE, grandFg:VIZ.WHITE});
+  _makeChart_(ws, 'PIE', ROW, colCursor, subcatRows.length, 2, ROW, colCursor+3, 450, 380, 'Total Menu Mix (% Qty)');
+  var t01end = ROW + subcatRows.length + 2;
+  colCursor = 20;
+
+  // T02
+  var entreeItems = byCat('Entrees').sort(byCatSlsDesc);
+  var entreeCols  = ['Item Name (Entrees)', 'Category Mix (% Sales)', 'Sub Category'];
+  if (C.returnRate) entreeCols.push('90 day Item Return Rate');
+  if (C.reorderRate) entreeCols.push('90 day Item Reorder Rate');
+  var entreeData = entreeItems.map(function(it) {
+    var row = [it.name, it.slsCat, it.sub];
+    if (C.returnRate) row.push(it.ret !== null && it.ret !== undefined ? it.ret : '');
+    if (C.reorderRate) row.push(it.reo !== null && it.reo !== undefined ? it.reo : '');
+    return row;
+  });
+  entreeData.push(['Grand Total', 1, ''].concat(C.returnRate ? [''] : []).concat(C.reorderRate ? [''] : []));
+  _writeTable_(ws, ROW, colCursor, entreeCols, entreeData, {pctCols:[2].concat(C.returnRate ? [4] : [])});
+  var entreeBySub = {};
+  entreeItems.forEach(function(it){ entreeBySub[it.sub] = (entreeBySub[it.sub]||0) + it.slsCat; });
+  var subPieData = Object.keys(entreeBySub).map(function(s){return [s,entreeBySub[s]];}).sort(function(a,b){return b[1]-a[1];});
+  subPieData.push(['Grand Total', 1]);
+  _writeTable_(ws, ROW, colCursor + entreeCols.length + 1, ['Sub Category', 'Category Mix (% Sales)'], subPieData, {pctCols:[2]});
+  _makeChart_(ws, 'PIE', ROW, colCursor + entreeCols.length + 1, subPieData.length, 2, ROW, colCursor + entreeCols.length + 4, 400, 300, 'Category Mix (% Sales) - By Sub Category');
+  colCursor += entreeCols.length + 18;
+
+  // T03
+  colCursor = 1;
+  var bowlRow2 = t01end + 2;
+  var bowlItems = bySub('Bowl').sort(byCatSlsDesc);
+  var bowlCols  = ['Item Name (Bowls)', 'Bowls Mix (% Sales)', 'Total Menu Mix (% Qty)', 'Average Margin (%)'];
+  if (C.returnRate) { bowlCols.push('90 day Item Return Rate'); bowlCols.push('90 day Item Reorder Rate'); }
+  var bowlData = bowlItems.map(function(it) {
+    var r = [it.name, it.slsSub, it.pctMix, it.pctMgn];
+    if (C.returnRate) r.push(it.ret !== null ? it.ret : '', it.reo !== null ? it.reo : '');
+    return r;
+  });
+  var bowlTot = ['Grand Total', bowlItems.reduce(function(s,it){return s+it.slsSub;},0), bowlItems.reduce(function(s,it){return s+it.pctMix;},0), bowlItems.length ? bowlItems.reduce(function(s,it){return s+it.pctMgn;},0)/bowlItems.length : 0];
+  if (C.returnRate) {
+    var retItems = bowlItems.filter(function(it){return it.ret!==null;});
+    bowlTot.push(retItems.length ? retItems.reduce(function(s,it){return s+it.ret;},0)/retItems.length : '');
+    var reoItems = bowlItems.filter(function(it){return it.reo!==null;});
+    bowlTot.push(reoItems.length ? reoItems.reduce(function(s,it){return s+it.reo;},0)/reoItems.length : '');
+  }
+  bowlData.push(bowlTot);
+  var bowlPctCols = [2,3,4].concat(C.returnRate ? [5,6] : []);
+  var nBowlCols = bowlCols.length;
+  _writeTable_(ws, bowlRow2, colCursor, bowlCols, bowlData, {pctCols:bowlPctCols, marginCol:4, avgMargin:avgMgn});
+  _makeChart_(ws, 'BAR', bowlRow2, colCursor, bowlData.length, 2, bowlRow2, colCursor+nBowlCols+1, 420, 260, 'Total Menu Mix (% Qty) vs Item Name');
+  _makeChart_(ws, 'BAR', bowlRow2, colCursor, bowlData.length, 4, bowlRow2+18, colCursor+nBowlCols+1, 420, 260, 'Average Margin (%) vs Item Name');
+
+  // T04
+  colCursor = nBowlCols + 16;
+  var plateItems = bySub('Plates').sort(byCatSlsDesc);
+  var plateCols  = ['Item Name (Plates)', 'Plates Mix (% Sales)', 'Total Menu Mix (% Qty)', 'Average Margin (%)'];
+  if (C.returnRate) { plateCols.push('90 day Item Return Rate'); plateCols.push('90 day Item Reorder Rate'); }
+  var plateData = plateItems.map(function(it) { var r = [it.name, it.slsSub, it.pctMix, it.pctMgn]; if (C.returnRate) r.push(it.ret !== null ? it.ret : '', it.reo !== null ? it.reo : ''); return r; });
+  var plateTot = ['Grand Total', plateItems.reduce(function(s,it){return s+it.slsSub;},0), plateItems.reduce(function(s,it){return s+it.pctMix;},0), plateItems.length ? plateItems.reduce(function(s,it){return s+it.pctMgn;},0)/plateItems.length : 0];
+  if (C.returnRate) plateTot.push('','');
+  plateData.push(plateTot);
+  _writeTable_(ws, bowlRow2, colCursor, plateCols, plateData, {pctCols:[2,3,4].concat(C.returnRate?[5,6]:[]), marginCol:4, avgMargin:avgMgn});
+  _makeChart_(ws, 'BAR', bowlRow2, colCursor, plateData.length, 2, bowlRow2, colCursor+plateCols.length+1, 420, 260, 'Plates Mix (% Sales) vs Item Name');
+  _makeChart_(ws, 'BAR', bowlRow2, colCursor, plateData.length, 4, bowlRow2+18, colCursor+plateCols.length+1, 420, 260, 'Average Margin (%) vs Item Name');
+
+  // T05
+  var burRow = bowlRow2 + Math.max(bowlData.length, plateData.length) + 5;
+  colCursor = 1;
+  var burItems = bySub('Burrito').sort(byCatSlsDesc);
+  var burCols  = ['Item Name (Burrito)', 'Burrito Mix (% Sales)', 'Total Menu Mix (% Qty)', 'Average Margin (%)'];
+  if (C.returnRate) { burCols.push('90 day Item Return Rate'); burCols.push('90 day Item Reorder Rate'); }
+  var burData = burItems.map(function(it) { var r = [it.name, it.slsSub, it.pctMix, it.pctMgn]; if (C.returnRate) r.push(it.ret !== null ? it.ret : '', it.reo !== null ? it.reo : ''); return r; });
+  var burTot = ['Grand Total', burItems.reduce(function(s,it){return s+it.slsSub;},0), burItems.reduce(function(s,it){return s+it.pctMix;},0), burItems.length ? burItems.reduce(function(s,it){return s+it.pctMgn;},0)/burItems.length : 0];
+  if (C.returnRate) burTot.push('','');
+  burData.push(burTot);
+  _writeTable_(ws, burRow, colCursor, burCols, burData, {pctCols:[2,3,4].concat(C.returnRate?[5,6]:[]), marginCol:4, avgMargin:avgMgn});
+  _makeChart_(ws, 'BAR', burRow, colCursor, burData.length, 2, burRow, colCursor+burCols.length+1, 380, 240, 'Burrito Mix (% Sales) vs Item Name');
+  _makeChart_(ws, 'BAR', burRow, colCursor, burData.length, 4, burRow+16, colCursor+burCols.length+1, 380, 240, 'Average Margin (%) vs Item Name');
+
+  // T06
+  colCursor = burCols.length + 16;
+  var naItems = byCat('NA Drinks').sort(byCatSlsDesc);
+  var naCols  = ['Item Name (NA Drinks)', 'NA Drinks Mix (% Sales)', 'Total Menu Mix (% Qty)', 'Average Margin (%)'];
+  var naData  = naItems.map(function(it) { return [it.name, it.slsCat, it.pctMix, it.pctMgn]; });
+  naData.push(['Grand Total', naItems.reduce(function(s,it){return s+it.slsCat;},0), naItems.reduce(function(s,it){return s+it.pctMix;},0), naItems.length ? naItems.reduce(function(s,it){return s+it.pctMgn;},0)/naItems.length : 0]);
+  _writeTable_(ws, burRow, colCursor, naCols, naData, {pctCols:[2,3,4], marginCol:4, avgMargin:avgMgn});
+  _makeChart_(ws, 'BAR', burRow, colCursor, naData.length, 2, burRow, colCursor+naCols.length+1, 380, 240, 'NA Drinks Mix (% Sales) vs Item Name');
+  _makeChart_(ws, 'BAR', burRow, colCursor, naData.length, 4, burRow+16, colCursor+naCols.length+1, 380, 240, 'Average Margin (%) vs Item Name');
+
+  // T07
+  var alcRow = burRow + Math.max(burData.length, naData.length) + 5;
+  colCursor = 1;
+  var alcItems = byCat('Alc Drinks').sort(byCatSlsDesc);
+  var alcCols  = ['Item Name (Alc Drinks)', 'Alc Drinks Mix (% Sales)', 'Total Menu Mix (% Qty)', 'Average Margin (%)'];
+  var alcData  = alcItems.map(function(it) { return [it.name, it.slsCat, it.pctMix, it.pctMgn]; });
+  alcData.push(['Grand Total', alcItems.reduce(function(s,it){return s+it.slsCat;},0), alcItems.reduce(function(s,it){return s+it.pctMix;},0), alcItems.length ? alcItems.reduce(function(s,it){return s+it.pctMgn;},0)/alcItems.length : 0]);
+  _writeTable_(ws, alcRow, colCursor, alcCols, alcData, {pctCols:[2,3,4]});
+
+  // T08
+  colCursor = alcCols.length + 3;
+  var sideItems = byCat('Sides').sort(byCatSlsDesc);
+  var sideCols  = ['Item Name (Sides)', 'Sides Mix (% Sales)', 'Total Menu Mix (% Qty)', 'Average Margin (%)'];
+  if (C.returnRate) { sideCols.push('90 day Item Return Rate'); sideCols.push('90 day Item Reorder Rate'); }
+  var sideData = sideItems.map(function(it) { var r = [it.name, it.slsCat, it.pctMix, it.pctMgn]; if (C.returnRate) r.push(it.ret !== null ? it.ret : '', it.reo !== null ? it.reo : ''); return r; });
+  var sideTot = ['Grand Total', sideItems.reduce(function(s,it){return s+it.slsCat;},0), sideItems.reduce(function(s,it){return s+it.pctMix;},0), sideItems.length ? sideItems.reduce(function(s,it){return s+it.pctMgn;},0)/sideItems.length : 0];
+  if (C.returnRate) sideTot.push('','');
+  sideData.push(sideTot);
+  _writeTable_(ws, alcRow, colCursor, sideCols, sideData, {pctCols:[2,3,4].concat(C.returnRate?[5,6]:[]), marginCol:4, avgMargin:avgMgn});
+  _makeChart_(ws, 'BAR', alcRow, colCursor, sideData.length, 2, alcRow, colCursor+sideCols.length+1, 400, 260, 'Sides Mix (% Sales) vs Item Name');
+  _makeChart_(ws, 'BAR', alcRow, colCursor, sideData.length, 4, alcRow+18, colCursor+sideCols.length+1, 400, 260, 'Average Margin (%) vs Item Name');
+
+  // T09
+  colCursor = alcCols.length + sideCols.length + 20;
+  var sweetItems = byCat('Sweets').sort(byCatSlsDesc);
+  var sweetCols  = ['Item Name (Sweets)', 'Sweets Mix (% Sales)', 'Total Menu Mix (% Qty)', 'Average Margin (%)'];
+  if (C.returnRate) { sweetCols.push('90 day Item Return Rate'); sweetCols.push('90 day Item Reorder Rate'); }
+  var sweetData = sweetItems.map(function(it) { var r = [it.name, it.slsCat, it.pctMix, it.pctMgn]; if (C.returnRate) r.push(it.ret !== null ? it.ret : '', it.reo !== null ? it.reo : ''); return r; });
+  sweetData.push(['Grand Total', sweetItems.reduce(function(s,it){return s+it.slsCat;},0), sweetItems.reduce(function(s,it){return s+it.pctMix;},0), sweetItems.length ? sweetItems.reduce(function(s,it){return s+it.pctMgn;},0)/sweetItems.length : 0]);
+  _writeTable_(ws, alcRow, colCursor, sweetCols, sweetData, {pctCols:[2,3,4]});
+  _makeChart_(ws, 'BAR', alcRow, colCursor, sweetData.length, 2, alcRow, colCursor+sweetCols.length+1, 360, 240, 'Sweets Mix (% Sales) vs Item Name');
+  _makeChart_(ws, 'BAR', alcRow, colCursor, sweetData.length, 4, alcRow+18, colCursor+sweetCols.length+1, 360, 240, 'Average Margin (%)  vs Item Name');
+
+  // T10
+  var engRow = alcRow + Math.max(alcData.length, sideData.length, sweetData.length) + 5;
+  colCursor = 1;
+  var engOrder = ['Dog','Plow Horse','Puzzle','Star'];
+  var catOrder = ['Entrees','Sides','NA Drinks','Sweets','Kids Meal','Retail','Alc Drinks'];
+  var engHeaders = ['Category'].concat(engOrder).concat(['Grand Total']);
+  var engData = [];
+  catOrder.forEach(function(cat) {
+    if (!engCatMix[cat]) return;
+    var row = [cat]; var rowSum = 0;
+    engOrder.forEach(function(eng) { var v = engCatMix[cat][eng] || 0; row.push(v); rowSum += v; });
+    row.push(rowSum);
+    engData.push(row);
+  });
+  var engGT = ['Grand Total']; var engGTSum = 0;
+  engOrder.forEach(function(eng) { var v = allItems.reduce(function(s,it){return it.eng===eng?s+it.pctMix:s;},0); engGT.push(v); engGTSum += v; });
+  engGT.push(engGTSum);
+  engData.push(engGT);
+  _writeTable_(ws, engRow, colCursor, engHeaders, engData, {pctCols:[2,3,4,5,6]});
+  // engHeaders = ['Category','Dog','Plow Horse','Puzzle','Star','Grand Total']  — exclude Grand Total col
+  _makeChart_(ws, 'STACKED_BAR', engRow, colCursor, engData.length, engHeaders.length - 1, engRow, colCursor+engHeaders.length+1, 500, 340, 'Distribution of Menu Mix (% Qty) By Menu Engineering Quadrant');
+
+  // T11
+  colCursor = engHeaders.length + 20;
+  var top10 = allItems.slice().sort(byPctMixDesc).slice(0,10);
+  var top10Cols = ['Item Name', 'Total Menu Mix (% Qty)', 'Average Margin (%)'];
+  if (C.returnRate) { top10Cols.push('90 day Item Return Rate'); top10Cols.push('90 day Item Reorder Rate'); }
+  var top10Data = top10.map(function(it) { var r = [it.name, it.pctMix, it.pctMgn]; if (C.returnRate) r.push(it.ret !== null ? it.ret : '', it.reo !== null ? it.reo : ''); return r; });
+  top10Data.push(['Grand Total', top10.reduce(function(s,it){return s+it.pctMix;},0), top10.length ? top10.reduce(function(s,it){return s+it.pctMgn;},0)/top10.length : 0].concat(C.returnRate?['','']:[]));
+  _writeTable_(ws, engRow, colCursor, top10Cols, top10Data, {pctCols:[2,3].concat(C.returnRate?[4,5]:[]), marginCol:3, avgMargin:avgMgn});
+  _makeChart_(ws, 'HBAR', engRow, colCursor, 10, 2, engRow, colCursor+top10Cols.length+1, 400, 300, 'Total Menu Mix (% Qty) vs Item Name');
+  _makeChart_(ws, 'HBAR', engRow, colCursor, 10, 3, engRow+20, colCursor+top10Cols.length+1, 400, 300, 'Average Margin (%) vs Item Name');
+
+  // T12
+  var mgnRow = engRow + Math.max(engData.length, top10Data.length) + 5;
+  colCursor = 1;
+  var mgnCatData = catOrder.map(function(cat) { var ct = catTotals[cat]; if (!ct || ct.count === 0) return null; return [cat, ct.mgnSum/ct.count, ct.priceSum/ct.count]; }).filter(Boolean);
+  mgnCatData.sort(function(a,b){return b[1]-a[1];});
+  var overallAvgMgn = sumNs$ > 0 ? sumTotMgn$ / sumNs$ : 0; // reuse SUM/SUM from above
+  var overallAvgPrc = allItems.length ? allItems.reduce(function(s,it){return s+it.avgPrc;},0)/allItems.length : 0;
+  mgnCatData.push(['Grand Total', overallAvgMgn, overallAvgPrc]);
+  var mgnCatCols = ['Category', 'Average Margin (%)', 'Average Price ($)'];
+  _writeTable_(ws, mgnRow, colCursor, mgnCatCols, mgnCatData, {pctCols:[2], dollarCols:[3], marginCol:2, avgMargin:overallAvgMgn*0.9});
+  _makeChart_(ws, 'BAR', mgnRow, colCursor, mgnCatData.length, 2, mgnRow, colCursor+mgnCatCols.length+1, 420, 300, 'Average Margin (%) vs Category');
+
+  // T13
+  colCursor = mgnCatCols.length + 16;
+  function top5Mgn(cat) { return byCat(cat).filter(function(it){return it.pctMgn>0;}).sort(byMgnDesc).slice(0,5).map(function(it){return [it.name, it.pctMgn];}); }
+  _writeTable_(ws, mgnRow, colCursor, ['Item Name (Entrees)', 'Average Margin (%)'], top5Mgn('Entrees'), {pctCols:[2]});
+  _writeTable_(ws, mgnRow, colCursor+3, ['Item Name (NA Drinks)', 'Average Margin (%)'], top5Mgn('NA Drinks'), {pctCols:[2]});
+  _writeTable_(ws, mgnRow, colCursor+6, ['Item Name (Sides)', 'Average Margin (%)'], top5Mgn('Sides'), {pctCols:[2]});
+
+  // T14
+  colCursor = mgnCatCols.length + 25;
+  function top5Cogs(cat) { return byCat(cat).filter(function(it){return it.cogs>0;}).sort(byCogsDesc).slice(0,5).map(function(it){return [it.name, it.cogs];}); }
+  _writeTable_(ws, mgnRow, colCursor, ['Item Name (Entrees)', 'Average COGS (%)'], top5Cogs('Entrees'), {pctCols:[2]});
+  _writeTable_(ws, mgnRow, colCursor+3, ['Item Name (NA Drinks)', 'Average COGS (%)'], top5Cogs('NA Drinks'), {pctCols:[2]});
+  _writeTable_(ws, mgnRow, colCursor+6, ['Item Name (Sides)', 'Average COGS (%)'], top5Cogs('Sides'), {pctCols:[2]});
+
+  // T15
+  colCursor = mgnCatCols.length + 34;
+  function top5Sls(cat) { return byCat(cat).sort(bySlsDesc).slice(0,5).map(function(it){return [it.name, it.sls];}); }
+  _writeTable_(ws, mgnRow, colCursor, ['Item Name (Entrees)', 'Net Sales (%)'], top5Sls('Entrees'), {pctCols:[2]});
+  _writeTable_(ws, mgnRow, colCursor+3, ['Item Name (NA Drinks)', 'Net Sales (%)'], top5Sls('NA Drinks'), {pctCols:[2]});
+  _writeTable_(ws, mgnRow, colCursor+6, ['Item Name (Sides)', 'Net Sales (%)'], top5Sls('Sides'), {pctCols:[2]});
+
+  // T16
+  var revRow = mgnRow + 18;
+  colCursor = 1;
+  var revCatData = catOrder.map(function(cat) { var ct = catTotals[cat]; return ct ? [cat, ct.sls] : null; }).filter(Boolean).sort(function(a,b){return b[1]-a[1];});
+  revCatData.push(['Grand Total', revCatData.reduce(function(s,r){return s+r[1];},0)]);
+  _writeTable_(ws, revRow, colCursor, ['Category', 'Net Sales (%)'], revCatData, {pctCols:[2]});
+  _makeChart_(ws, 'PIE', revRow, colCursor, revCatData.length, 2, revRow, colCursor+3, 420, 300, 'Revenue (Net Sales %) by Category');
+
+  // T17
+  colCursor = 16;
+  var engQuadData = ['Star','Plow Horse','Dog','Puzzle'].map(function(eng) { var et = engTotals[eng] || {count:0, sls:0}; return [eng, et.count, et.sls]; }).sort(function(a,b){return b[2]-a[2];});
+  engQuadData.push(['Grand Total', engQuadData.reduce(function(s,r){return s+r[1];},0), engQuadData.reduce(function(s,r){return s+r[2];},0)]);
+  _writeTable_(ws, revRow, colCursor, ['Menu Engineering - Final', '# Items', 'Net Sales (%)'], engQuadData, {pctCols:[3]});
+  _makeChart_(ws, 'PIE', revRow, colCursor, engQuadData.length, 2, revRow, colCursor+4, 380, 280, 'Item Distribution by Menu Engineering Quadrant (Item Count)');
+  _makeChart_(ws, 'PIE', revRow, colCursor, engQuadData.length, 3, revRow+20, colCursor+4, 380, 280, 'Net Sales (%) By Menu Engineering Quadrant');
+
+  // T18
+  var dogsRow = revRow + 28;
+  colCursor = 1;
+  var dogItems = byEng('Dog').filter(function(it){return it.cat !== 'Alc Drinks';}).sort(byPctMixDesc);
+  var dogData = dogItems.map(function(it){return [it.name, it.pctMix, it.pctMgn];});
+  _writeTable_(ws, dogsRow, colCursor, ['Item Name (Dogs)', 'Total Menu Mix (% Qty)', 'Average Margin (%)'], dogData, {pctCols:[2,3]});
+
+  // T19
+  colCursor = 5;
+  ['Stars','Plow Horse','Puzzle','Dog'].forEach(function(label) {
+    var engKey = label === 'Stars' ? 'Star' : label;
+    var items  = byEng(engKey).sort(bySlsDesc).slice(0,5);
+    var tData  = items.map(function(it){return [it.name, it.sls];});
+    _writeTable_(ws, dogsRow, colCursor, ['Item Name ('+label+')', 'Net Sales (%)'], tData, {pctCols:[2]});
+    colCursor += 4;
+  });
+
+  // T20-T22
+  var modRow = dogsRow + Math.max(dogData.length, 8) + 5;
+  colCursor = 1;
+  var bowlFilterIH  = [{itype:'BYO Salad Bowl - In House', display:'BYO Salad Bowl'},{itype:'BYO Grain Bowl - In House', display:'BYO Grain Bowl'},{itype:'BYO Greens and Grains Bowl - In House', display:'BYO Greens+Grains'}];
+  var bowlFilterOn  = [{itype:'BYO Salad Bowl - Online', display:'BYO Salad Bowl'},{itype:'BYO Grain Bowl - Online', display:'BYO Grain Bowl'},{itype:'BYO Greens and Grains Bowl - Online', display:'BYO Greens+Grains'}];
+  var bowlFilterAll = [{itype:'BYO Salad Bowl', display:'BYO Salad Bowl'},{itype:'BYO Grain Bowl', display:'BYO Grain Bowl'},{itype:'BYO Greens and Grains Bowl', display:'BYO Greens+Grains'}];
+  var bFilter   = ch==='IH' ? bowlFilterIH  : ch==='BL' ? bowlFilterAll : bowlFilterOn;
+  var chFilter  = ch==='IH' ? 'IH' : ch==='BL' ? null : 'Online';
+  var bowlDisps = ['BYO Salad Bowl','BYO Grain Bowl','BYO Greens+Grains'];
+  var MOD_HEADERS_MAIN = function(label) { return [label, 'Average Cost', 'Qty (BYO Salad Bowl)', 'Qty (BYO Grain Bowl)', 'Qty (BYO Greens+Grains)', 'Total Qty']; };
+
+  [['Main','Modifiers (Mains)'],['1/2 Main','Modifiers (1/2 Mains)'],['Extra Main','Modifiers (Extra Mains)']].forEach(function(pair) {
+    var mtype = pair[0]; var label = pair[1];
+    var label_ch = label + ' - ' + (ch==='IH'?'InHouse':ch==='LO'?'Loyalty+3PD':ch==='BL'?'Blended':'Loyalty+3PD');
+    var modData = _buildModData_(ss, [mtype], bFilter, chFilter);
+    var modTableData = _buildModTable_(modData, bowlDisps, costMap);
+    if (modTableData.length > 1) {
+      _writeTable_(ws, modRow, colCursor, MOD_HEADERS_MAIN(label_ch), modTableData, {dollarCols:[2], numCols:[3,4,5,6]});
+      _makeChart_(ws, 'PIE', modRow, colCursor, modTableData.length, 6, modRow, colCursor+7, 380, 280, 'Total Quantity ('+label_ch+') Distribution');
+      colCursor += 20;
+    }
+  });
+
+  // T23-T27
+  if (ch !== 'IH') {
+    var onlineModRow = modRow + 25;
+    colCursor = 1;
+    var bOpts = ch === 'BL' ? null : 'Online';
+    var baseMaps = {
+      'BYO Salad Bowl':    _buildModData_(ss, ['Base'], [{itype:'BYO Salad Bowl', display:'BYO Salad Bowl'}], bOpts),
+      'BYO Grain Bowl':    _buildModData_(ss, ['Base'], [{itype:'BYO Grain Bowl', display:'BYO Grain Bowl'}], bOpts),
+      'BYO Greens+Grains': _buildModData_(ss, ['Base','1/2 Base'], [{itype:'BYO Greens and Grains Bowl', display:'BYO Greens+Grains'}], bOpts),
+    };
+    Object.keys(baseMaps).forEach(function(bowl) {
+      var bData = []; var bMap = baseMaps[bowl];
+      Object.keys(bMap).forEach(function(mod) {
+        var qty  = bMap[mod][bowl] || 0;
+        var cost = costMap[mod.toLowerCase().replace(/[^a-z0-9]/g,'')] || 0;
+        if (qty > 0) bData.push([mod, cost, qty]);
+      });
+      bData.sort(function(a,b){return b[2]-a[2];});
+      var totQty = bData.reduce(function(s,r){return s+r[2];},0);
+      var avgCst = bData.length ? bData.reduce(function(s,r){return s+r[1];},0)/bData.length : 0;
+      bData.push(['Average / Total', avgCst, totQty]);
+      _writeTable_(ws, onlineModRow, colCursor, ['Modifiers (in '+bowl+') - Bases', 'Average Cost', 'Quantity'], bData, {dollarCols:[2], numCols:[3]});
+      colCursor += 5;
+    });
+
+    var onlineSingleBowl = ch === 'BL'
+      ? [{itype:'BYO Salad Bowl', display:'Salad Bowl'},{itype:'BYO Grain Bowl', display:'Grains Bowl'},{itype:'BYO Greens and Grains Bowl', display:'Greens+Grains'}]
+      : [{itype:'BYO Salad Bowl - Online', display:'Salad Bowl'},{itype:'BYO Grain Bowl - Online', display:'Grains Bowl'},{itype:'BYO Greens and Grains Bowl - Online', display:'Greens+Grains'}];
+    var onlineDisps = ['Salad Bowl','Grains Bowl','Greens+Grains'];
+    var HDR_SINGLE = function(label) { return [label, 'Average Cost', 'Qty (Salad Bowl)', 'Qty (Grains Bowl)', 'Qty (Greens+Grains)', 'Total Qty']; };
+
+    [['Topping','Modifiers (Toppings)'],['Sauce','Modifiers (Sauce)'],['Veggie','Modifiers (Veggies)'],['Side','Modifiers (Make It Meal)']].forEach(function(pair) {
+      var mtype = pair[0]; var label = pair[1];
+      var md = _buildModData_(ss, [mtype], onlineSingleBowl, bOpts);
+      var tbl = _buildModTable_(md, onlineDisps, costMap);
+      if (tbl.length > 1) {
+        _writeTable_(ws, onlineModRow, colCursor, HDR_SINGLE(label+' - LO+3PD'), tbl, {dollarCols:[2], numCols:[3,4,5,6]});
+        _makeChart_(ws, 'PIE', onlineModRow, colCursor, tbl.length, 6, onlineModRow, colCursor+7, 380, 280, 'Total Quantity ('+label+' - LO+3PD) Distribution');
+        colCursor += 20;
+      }
+    });
+  }
+
+  SpreadsheetApp.flush();
+}
+
+
+// Helper: set paragraph alignment
+function _setAlign_(textRange, alignment) {
+  try {
+    textRange.getParagraphs().forEach(function(p) {
+      p.getRange().getParagraphStyle().setParagraphAlignment(alignment);
+    });
+  } catch(e) {}
+}
+
+// STEP 9 design constants
+var S9 = {
+  W: 9144000, H: 5143500,
+  PURPLE: '#7B2FBE', LAV: '#EDE7F6', WHITE: '#FFFFFF', RED_LITE: '#FFCDD2',
+  HDR_H: 0.62,
+  STRIPE: [
+    { color: '#009688', x: 3.35, w: 1.80 },
+    { color: '#E91E63', x: 5.15, w: 1.10 },
+    { color: '#FF5722', x: 6.25, w: 2.70 },
+    { color: '#1A237E', x: 8.95, w: 1.05 },
+  ],
+};
+
+function _getOrCreateDeck_(title) {
+  var props = PropertiesService.getScriptProperties();
+  var deckId = props.getProperty('PMIX_DECK_ID');
+  if (deckId) {
+    try {
+      var deck = SlidesApp.openById(deckId);
+      var slides = deck.getSlides();
+      deck.appendSlide(SlidesApp.PredefinedLayout.BLANK);
+      slides.forEach(function(sl) { sl.remove(); });
+      deck.setName(title);
+      return deck;
+    } catch(e) {}
+  }
+  var deck = SlidesApp.create(title);
+  props.setProperty('PMIX_DECK_ID', deck.getId());
+  deck.getSlides()[0].remove();
+  return deck;
+}
+
+function _addSlide_(deck) { return deck.appendSlide(SlidesApp.PredefinedLayout.BLANK); }
+function _in(inches) { return Math.round(inches * 914400); }
+
+function _addHeader_(slide, title, channel) {
+  var bar = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, 0, 0, S9.W, _in(S9.HDR_H));
+  bar.getFill().setSolidFill('#7B2FBE'); bar.getBorder().setTransparent();
+  var rasa = slide.insertTextBox('RASA', _in(0.12), _in(0.08), _in(1.2), _in(0.45));
+  rasa.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(20).setBold(true).setForegroundColor('#FFFFFF');
+  rasa.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+  var titleBox = slide.insertTextBox(title, _in(1.4), _in(0.04), _in(6.8), _in(0.54));
+  titleBox.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(16).setBold(true).setForegroundColor('#FFFFFF');
+  titleBox.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+  _setAlign_(titleBox.getText(), SlidesApp.ParagraphAlignment.CENTER);
+  if (channel) {
+    var chBox = slide.insertTextBox(channel, _in(7.8), _in(0.08), _in(1.2), _in(0.45));
+    chBox.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(11).setBold(true).setForegroundColor('#FFFFFF');
+    chBox.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+    _setAlign_(chBox.getText(), SlidesApp.ParagraphAlignment.RIGHT);
+  }
+  var kutBox = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, _in(9.1), _in(0.06), _in(0.82), _in(0.50));
+  kutBox.getFill().setSolidFill('#FFFFFF'); kutBox.getBorder().setTransparent();
+  var kutTxt = slide.insertTextBox('Kutlerri', _in(9.1), _in(0.06), _in(0.82), _in(0.50));
+  kutTxt.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(8).setBold(true).setForegroundColor('#7B2FBE');
+  kutTxt.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+  _setAlign_(kutTxt.getText(), SlidesApp.ParagraphAlignment.CENTER);
+}
+
+function _addContentBg_(slide) {
+  var bg = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, 0, _in(S9.HDR_H), S9.W, _in(5.625 - S9.HDR_H - 0.32));
+  bg.getFill().setSolidFill('#EDE7F6'); bg.getBorder().setTransparent();
+}
+
+function _addBottomStripe_(slide) {
+  var stripeY = _in(5.625 - 0.32); var stripeH = _in(0.32);
+  S9.STRIPE.forEach(function(s) {
+    var rect = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, _in(s.x), stripeY, _in(s.w), stripeH);
+    rect.getFill().setSolidFill(s.color); rect.getBorder().setTransparent();
+  });
+  var tealBar = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, 0, _in(5.45), S9.W, _in(0.175));
+  tealBar.getFill().setSolidFill('#009688'); tealBar.getBorder().setTransparent();
+}
+
+function _applyChrome_(slide, title, channel) { _addContentBg_(slide); _addHeader_(slide, title, channel); _addBottomStripe_(slide); }
+
+function _readVizTable_(ss, vizShName, headerText) {
+  var ws = ss.getSheetByName(vizShName);
+  if (!ws) return { headers: [], rows: [] };
+  var data = ws.getDataRange().getValues();
+  for (var r = 0; r < data.length; r++) {
+    for (var c = 0; c < data[r].length; c++) {
+      var cellStr = String(data[r][c] || '').trim();
+      if (cellStr === headerText || cellStr.indexOf(headerText) === 0 || headerText.indexOf(cellStr) === 0) {
+        var headers = []; var ncols = 0;
+        for (var cc = c; cc < data[r].length; cc++) { var h = data[r][cc]; if (h === null || h === '' || h === undefined) break; headers.push(String(h)); ncols++; }
+        var rows = [];
+        for (var dr = r + 1; dr < data.length; dr++) {
+          var firstCell = data[dr][c];
+          if (firstCell === null || firstCell === '' || firstCell === undefined) break;
+          var row = [];
+          for (var dc = c; dc < c + ncols; dc++) { row.push(data[dr][dc] !== null && data[dr][dc] !== undefined ? data[dr][dc] : ''); }
+          rows.push(row);
+        }
+        var avgMargin = 0;
+        var mgnIdx = headers.findIndex(function(h) { return h.toLowerCase().indexOf('margin') !== -1 && h.toLowerCase().indexOf('average') !== -1; });
+        if (mgnIdx >= 0) {
+          var mgnVals = rows.filter(function(r) { return String(r[0]||'').toLowerCase().indexOf('grand')===-1 && String(r[0]||'').toLowerCase().indexOf('total')===-1; }).map(function(r){return Number(r[mgnIdx])||0;}).filter(function(v){return v>0;});
+          avgMargin = mgnVals.length ? mgnVals.reduce(function(a,b){return a+b;},0)/mgnVals.length : 0;
+        }
+        return { headers: headers, rows: rows, avgMargin: avgMargin, colStart: c };
+      }
+    }
+  }
+  return { headers: [], rows: [], avgMargin: 0 };
+}
+
+function _addSlideTable_(slide, tableData, x, y, w, h, colWidths, avgMargin) {
+  if (!tableData || !tableData.rows || tableData.rows.length === 0) return;
+  if (!tableData.headers || tableData.headers.length === 0) return;
+  var headers = tableData.headers; var rows = tableData.rows;
+  var nc = headers.length; var nr = rows.length + 1;
+  if (nc < 1 || nr < 2 || !w || w <= 0) return;
+  if (!h || h <= 0) h = Math.max(0.3, 0.25 * nr);
+  if (!x || x < 0) x = 0.1; if (!y || y < 0) y = 0.75;
+  var table;
+  try { table = slide.insertTable(nr, nc, _in(x), _in(y), _in(w), _in(h)); }
+  catch(e) { var ph = slide.insertTextBox('[Table data not available]', _in(x), _in(y), _in(w), _in(Math.max(h,0.3))); ph.getText().getTextStyle().setFontSize(8).setForegroundColor('#FF0000'); return; }
+  function writeCell(cell, text, bgColor, fontSize, bold, fgColor, alignLeft) {
+    try { cell.getFill().setSolidFill(bgColor); cell.getText().setText(text); var st=cell.getText().getTextStyle(); st.setFontFamily('Montserrat').setFontSize(fontSize||8).setForegroundColor(fgColor||'#212121'); if(bold) st.setBold(true); _setAlign_(cell.getText(), alignLeft?SlidesApp.ParagraphAlignment.START:SlidesApp.ParagraphAlignment.CENTER); } catch(e) {}
+  }
+  for (var c = 0; c < nc; c++) { writeCell(table.getCell(0,c), String(headers[c]||''), '#7B2FBE', 8, true, '#FFFFFF', c===0); }
+  for (var r = 0; r < rows.length; r++) {
+    var rowData = rows[r];
+    var isGrand = String(rowData[0]||'').toLowerCase().indexOf('grand')!==-1||String(rowData[0]||'').toLowerCase().indexOf('total / avg')!==-1||String(rowData[0]||'').toLowerCase().indexOf('average / total')!==-1;
+    for (var c = 0; c < nc; c++) {
+      var val = rowData[c]!==undefined?rowData[c]:'';
+      var dispVal = _formatCellVal_(val, headers[c]);
+      if (isGrand) { writeCell(table.getCell(r+1,c), dispVal, '#7B2FBE', 8, true, '#FFFFFF', c===0); }
+      else { var bg=(r%2===0)?'#FFFFFF':'#F3E5F5'; var isMgnCol=headers[c].toLowerCase().indexOf('margin')!==-1&&headers[c].toLowerCase().indexOf('average')!==-1; if(isMgnCol&&avgMargin>0&&typeof val==='number'&&val<avgMargin&&val>0) bg='#FFCDD2'; writeCell(table.getCell(r+1,c), dispVal, bg, 8, false, '#212121', c===0); }
+    }
+  }
+}
+
+function _formatCellVal_(val, header) {
+  if (val===null||val===undefined||val==='') return '';
+  var h = String(header||'').toLowerCase();
+  if (typeof val==='number') {
+    if (h.indexOf('%')!==-1||h.indexOf('rate')!==-1||h.indexOf('margin')!==-1||h.indexOf('mix')!==-1||h.indexOf('cogs')!==-1||h.indexOf('sls')!==-1) return (val*100).toFixed(1)+'%';
+    if (h.indexOf('cost')!==-1||h.indexOf('price')!==-1) return '$'+val.toFixed(2);
+    if (h.indexOf('qty')!==-1||h.indexOf('quantity')!==-1||h.indexOf('#')!==-1) return Math.round(val).toString();
+    return val.toFixed(1);
+  }
+  return String(val);
+}
+
+function _insertLinkedChart_(slide, ss, vizShName, chartIndex, x, y, w, h) {
+  var ws = ss.getSheetByName(vizShName); if (!ws) return;
+  var charts = ws.getCharts(); if (!charts||chartIndex>=charts.length) return;
+  try { slide.insertSheetsChart(charts[chartIndex], _in(x), _in(y), _in(w), _in(h)); }
+  catch(e) { var ph=slide.insertTextBox('[Chart: '+vizShName+' #'+chartIndex+']',_in(x),_in(y),_in(w),_in(h)); ph.getFill().setSolidFill('#E8EAF6'); ph.getText().getTextStyle().setFontSize(9).setForegroundColor('#5C6BC0'); ph.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE); _setAlign_(ph.getText(),SlidesApp.ParagraphAlignment.CENTER); }
+}
+
+function _makeFullPurpleSlide_(deck, line1, line2, bullets) {
+  var slide = _addSlide_(deck); slide.getBackground().setSolidFill('#7B2FBE');
+  var rasa = slide.insertTextBox('RASA', _in(0.25), _in(0.12), _in(1.5), _in(0.45)); rasa.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(18).setBold(true).setForegroundColor('#FFFFFF');
+  var kut = slide.insertTextBox('Kutlerri', _in(8.9), _in(0.12), _in(1.0), _in(0.35)); kut.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(9).setBold(true).setForegroundColor('#FFFFFF'); _setAlign_(kut.getText(), SlidesApp.ParagraphAlignment.RIGHT);
+  if (line1) { var h1=slide.insertTextBox(line1,_in(0.4),_in(1.0),_in(9.2),_in(0.75)); h1.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(28).setBold(true).setForegroundColor('#FFFFFF'); }
+  if (line2) { var h2=slide.insertTextBox(line2,_in(0.4),_in(1.85),_in(9.2),_in(0.55)); h2.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(18).setForegroundColor('#E0E0E0'); }
+  if (bullets&&bullets.length) { var bulletY=line2?2.55:2.0; bullets.forEach(function(b){ var bBox=slide.insertTextBox('\u25CF  '+b,_in(0.6),_in(bulletY),_in(7.5),_in(0.38)); bBox.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(14).setBold(true).setForegroundColor('#FFFFFF'); bulletY+=0.42; }); }
+  _addBottomStripe_(slide); return slide;
+}
+
+function _makeContentSlide_(deck, title, channel) { var slide=_addSlide_(deck); slide.getBackground().setSolidFill('#FFFFFF'); _applyChrome_(slide,title,channel); return slide; }
+
+function _loadVizData_(ss) {
+  var d={}, VBL=VIZ_SH.BL, VIH=VIZ_SH.IH, VLO=VIZ_SH.LO, VTD=VIZ_SH.TD;
+  function rd(sh,hdr){return _readVizTable_(ss,sh,hdr);}
+  d.BL_subcat=rd(VBL,'Sub Category'); d.BL_entrees=rd(VBL,'Item Name (Entrees)'); d.BL_bowls=rd(VBL,'Item Name (Bowls)'); d.BL_plates=rd(VBL,'Item Name (Plates)'); d.BL_burrito=rd(VBL,'Item Name (Burrito)'); d.BL_nadrinks=rd(VBL,'Item Name (NA Drinks)'); d.BL_alcdrinks=rd(VBL,'Item Name (Alc Drinks)'); d.BL_sides=rd(VBL,'Item Name (Sides)'); d.BL_sweets=rd(VBL,'Item Name (Sweets)'); d.BL_engquad=rd(VBL,'Category'); d.BL_top10=rd(VBL,'Item Name'); d.BL_margcat=rd(VBL,'Category'); d.BL_profEnt=rd(VBL,'Item Name (Entrees)'); d.BL_profNA=rd(VBL,'Item Name (NA Drinks)'); d.BL_profSide=rd(VBL,'Item Name (Sides)'); d.BL_cogsEnt=rd(VBL,'Item Name (Entrees)'); d.BL_cogsNA=rd(VBL,'Item Name (NA Drinks)'); d.BL_cogsSide=rd(VBL,'Item Name (Sides)'); d.BL_soldEnt=rd(VBL,'Item Name (Entrees)'); d.BL_soldNA=rd(VBL,'Item Name (NA Drinks)'); d.BL_soldSide=rd(VBL,'Item Name (Sides)'); d.BL_revcats=rd(VBL,'Category'); d.BL_engcat=rd(VBL,'Menu Engineering - Final'); d.BL_dogs=rd(VBL,'Item Name (Dogs)'); d.BL_stars=rd(VBL,'Item Name (Stars)'); d.BL_puzzle=rd(VBL,'Item Name (Puzzle)'); d.BL_dog=rd(VBL,'Item Name (Dog)'); d.BL_plowhorse=rd(VBL,'Item Name (Plow Horse)'); d.BL_mainsMod=rd(VBL,'Modifiers (Mains) - Blended'); d.BL_halfMains=rd(VBL,'Modifiers (1/2 Mains) - Blended'); d.BL_extraMain=rd(VBL,'Modifiers (Extra Mains) - Blended');
+  d.IH_subcat=rd(VIH,'Sub Category'); d.IH_entrees=rd(VIH,'Item Name (Entrees)'); d.IH_bowls=rd(VIH,'Item Name (Bowls)'); d.IH_plates=rd(VIH,'Item Name (Plates)'); d.IH_burrito=rd(VIH,'Item Name (Burrito)'); d.IH_nadrinks=rd(VIH,'Item Name (NA Drinks)'); d.IH_alcdrinks=rd(VIH,'Item Name (Alc Drinks)'); d.IH_sides=rd(VIH,'Item Name (Sides)'); d.IH_sweets=rd(VIH,'Item Name (Sweets)'); d.IH_engquad=rd(VIH,'Category'); d.IH_top10=rd(VIH,'Item Name'); d.IH_margcat=rd(VIH,'Category'); d.IH_revcats=rd(VIH,'Category'); d.IH_engcat=rd(VIH,'Menu Engineering - Final'); d.IH_dogs=rd(VIH,'Item Name (Dogs)'); d.IH_stars=rd(VIH,'Item Name (Stars)'); d.IH_mainsMod=rd(VIH,'Modifiers (Mains) - InHouse'); d.IH_halfMains=rd(VIH,'Modifiers (1/2 Mains) - InHouse'); d.IH_extraMain=rd(VIH,'Modifiers (Extra Mains) - InHouse');
+  d.LO_subcat=rd(VLO,'Sub Category'); d.LO_entrees=rd(VLO,'Item Name (Entrees)'); d.LO_bowls=rd(VLO,'Item Name (Bowls)'); d.LO_plates=rd(VLO,'Item Name (Plates)'); d.LO_burrito=rd(VLO,'Item Name (Burrito)'); d.LO_nadrinks=rd(VLO,'Item Name (NA Drinks)'); d.LO_sides=rd(VLO,'Item Name (Sides)'); d.LO_sweets=rd(VLO,'Item Name (Sweets)'); d.LO_engquad=rd(VLO,'Category'); d.LO_top10=rd(VLO,'Item Name'); d.LO_margcat=rd(VLO,'Category'); d.LO_revcats=rd(VLO,'Category'); d.LO_engcat=rd(VLO,'Menu Engineering - Final'); d.LO_dogs=rd(VLO,'Item Name (Dogs)'); d.LO_stars=rd(VLO,'Item Name (Stars)'); d.LO_mainsMod=rd(VLO,'Modifiers (Mains) - Loyalty+3PD'); d.LO_halfMains=rd(VLO,'Modifiers (1/2 Mains) - Loyalty+3PD'); d.LO_extraMain=rd(VLO,'Modifiers (Extra Mains) - Loyalty+3PD'); d.LO_bases_sal=rd(VLO,'Modifiers (in BYO Salad Bowl) - Bases'); d.LO_bases_gra=rd(VLO,'Modifiers (in BYO Grain Bowl) - Bases'); d.LO_bases_gg=rd(VLO,'Modifiers (in BYO Greens+Grains Bowl) - Bases'); d.LO_toppings=rd(VLO,'Modifiers (Toppings) - LO+3PD'); d.LO_sauce=rd(VLO,'Modifiers (Sauce) - LO+3PD'); d.LO_veggies=rd(VLO,'Modifiers (Veggies) - LO+3PD'); d.LO_meal=rd(VLO,'Modifiers (Make It Meal) - LO+3PD');
+  d.TD_subcat=rd(VTD,'Sub Category'); d.TD_entrees=rd(VTD,'Item Name (Entrees)'); d.TD_bowls=rd(VTD,'Item Name (Bowls)'); d.TD_plates=rd(VTD,'Item Name (Plates)'); d.TD_burrito=rd(VTD,'Item Name (Burrito)'); d.TD_nadrinks=rd(VTD,'Item Name (NA Drinks)'); d.TD_sides=rd(VTD,'Item Name (Sides)'); d.TD_sweets=rd(VTD,'Item Name (Sweets)'); d.TD_engquad=rd(VTD,'Category'); d.TD_top10=rd(VTD,'Item Name'); d.TD_margcat=rd(VTD,'Category'); d.TD_revcats=rd(VTD,'Category'); d.TD_engcat=rd(VTD,'Menu Engineering - Final'); d.TD_dogs=rd(VTD,'Item Name (Dogs)'); d.TD_stars=rd(VTD,'Item Name (Stars)');
+  return d;
+}
+
+function _slideTableChart_(deck,ss,title,channel,tableData,vizSh,chartIdx,tableX,tableY,tableW,tableH,colWidths,chartX,chartY,chartW,chartH){var slide=_makeContentSlide_(deck,title,channel);_addSlideTable_(slide,tableData,tableX,tableY,tableW,tableH,colWidths,tableData.avgMargin);_insertLinkedChart_(slide,ss,vizSh,chartIdx,chartX,chartY,chartW,chartH);return slide;}
+function _slideTableOnly_(deck,title,channel,tableData,x,y,w,h,colWidths){var slide=_makeContentSlide_(deck,title,channel);_addSlideTable_(slide,tableData,x,y,w,h,colWidths,tableData.avgMargin);return slide;}
+function _slideTwoCharts_(deck,ss,title,channel,vizSh,chartIdx1,chartIdx2){var slide=_makeContentSlide_(deck,title,channel);_insertLinkedChart_(slide,ss,vizSh,chartIdx1,0.15,0.75,4.85,4.5);_insertLinkedChart_(slide,ss,vizSh,chartIdx2,5.1,0.75,4.75,4.5);return slide;}
+function _slideTableTwoCharts_(deck,ss,title,channel,tableData,vizSh,chartIdx1,chartIdx2,tableW,colWidths){var slide=_makeContentSlide_(deck,title,channel);var tw=tableW||3.2;_addSlideTable_(slide,tableData,0.15,0.75,tw,Math.min(4.5,0.28*(tableData.rows.length+1)+0.1),colWidths,tableData.avgMargin);var cx=tw+0.35;var cw=9.8-cx;_insertLinkedChart_(slide,ss,vizSh,chartIdx1,cx,0.75,cw,2.15);_insertLinkedChart_(slide,ss,vizSh,chartIdx2,cx,3.05,cw,2.2);return slide;}
+function _slideThreeColumnTables_(deck,title,channel,tblEnt,tblNA,tblSide){var slide=_makeContentSlide_(deck,title,channel);var colW=[0.68,0.32];_addSlideTable_(slide,tblEnt,0.12,2.3,3.1,1.9,colW,0);_addSlideTable_(slide,tblNA,3.42,2.3,3.1,1.9,colW,0);_addSlideTable_(slide,tblSide,6.72,2.3,3.1,1.9,colW,0);return slide;}
+function _slideFourColumnTables_(deck,title,channel,tblStars,tblPuzzle,tblDog,tblPlow){var slide=_makeContentSlide_(deck,title,channel);var colW=[0.6,0.4];_addSlideTable_(slide,tblStars,0.12,2.0,2.4,2.3,colW,0);_addSlideTable_(slide,tblPuzzle,2.57,2.0,2.4,2.3,colW,0);_addSlideTable_(slide,tblDog,5.02,2.0,2.4,2.3,colW,0);_addSlideTable_(slide,tblPlow,7.47,2.0,2.4,2.3,colW,0);return slide;}
+function _slideBYOTwoTables_(deck,ss,title,channel,tbl1,tbl2,vizSh,chartIdx1,chartIdx2){var slide=_makeContentSlide_(deck,title,channel);var tw=4.7;var th=Math.min(3.8,0.26*(Math.max(tbl1.rows.length,tbl2.rows.length)+1)+0.1);_addSlideTable_(slide,tbl1,0.12,0.72,tw,th,[0.38,0.18,0.15,0.15,0.14],0);_addSlideTable_(slide,tbl2,5.05,0.72,tw,th,[0.38,0.18,0.15,0.15,0.14],0);_insertLinkedChart_(slide,ss,vizSh,chartIdx1,0.12,th+0.85,tw,4.6-th-0.1);_insertLinkedChart_(slide,ss,vizSh,chartIdx2,5.05,th+0.85,tw,4.6-th-0.1);return slide;}
+function _slideBYOOneTable_(deck,ss,title,channel,tbl,vizSh,chartIdx){var slide=_makeContentSlide_(deck,title,channel);var th=Math.min(3.2,0.26*(tbl.rows.length+1)+0.1);_addSlideTable_(slide,tbl,0.12,0.72,9.76,th,[0.38,0.1,0.13,0.13,0.13,0.13],0);if(chartIdx>=0){_insertLinkedChart_(slide,ss,vizSh,chartIdx,2.5,th+0.9,5.0,4.5-th-0.1);}return slide;}
+function _slideBasesTables_(deck,ss,title,channel,tbl1,tbl2,tbl3,vizSh,c1,c2,c3){var slide=_makeContentSlide_(deck,title,channel);var colW=[0.5,0.25,0.25];var maxRows=Math.max(tbl1.rows.length,tbl2.rows.length,tbl3.rows.length);var th=Math.min(3.2,0.26*(maxRows+1)+0.1);_addSlideTable_(slide,tbl1,0.12,0.72,3.1,th,colW,0);_addSlideTable_(slide,tbl2,3.37,0.72,3.1,th,colW,0);_addSlideTable_(slide,tbl3,6.62,0.72,3.1,th,colW,0);_insertLinkedChart_(slide,ss,vizSh,c1,0.12,th+0.9,3.0,4.4-th);_insertLinkedChart_(slide,ss,vizSh,c2,3.37,th+0.9,3.0,4.4-th);_insertLinkedChart_(slide,ss,vizSh,c3,6.62,th+0.9,3.0,4.4-th);return slide;}
+function _slideMenuEngQuadrant_(deck,ss,title,channel,engData,vizSh,chartIdx){var slide=_makeContentSlide_(deck,title,channel);_insertLinkedChart_(slide,ss,vizSh,chartIdx,0.12,0.72,5.8,3.5);_addSlideTable_(slide,engData,0.12,4.35,9.76,1.0,[0.14,0.12,0.12,0.12,0.12,0.12,0.26],engData.avgMargin);var defData={headers:['Menu Engineering Quadrant','Sales Volume','Profit Margin','Definition'],rows:[['Star','High','High','Popular items with strong profitability'],['Plow Horse','High','Low','Popular but low-margin items'],['Puzzle','Low','High','Profitable but not popular'],['Dog','Low','Low','Low sales and low margin']],avgMargin:0};_addSlideTable_(slide,defData,6.1,0.72,3.78,1.8,[0.30,0.18,0.18,0.34],0);return slide;}
+function _slideMenuEngCatSales_(deck,ss,title,channel,engCatData,vizSh,chartIdxCount,chartIdxSales){var slide=_makeContentSlide_(deck,title,channel);_insertLinkedChart_(slide,ss,vizSh,chartIdxCount,0.12,0.72,4.8,3.0);_insertLinkedChart_(slide,ss,vizSh,chartIdxSales,5.1,0.72,4.8,3.0);_addSlideTable_(slide,engCatData,0.12,3.85,4.8,1.45,[0.28,0.18,0.18,0.36],0);var defData={headers:['Menu Engineering Quadrant','Sales Volume','Profit Margin','Definition'],rows:[['Star','High','High','Popular items with strong profitability'],['Plow Horse','High','Low','Popular but low-margin items'],['Puzzle','Low','High','Profitable but not popular'],['Dog','Low','Low','Low sales and low margin']],avgMargin:0};_addSlideTable_(slide,defData,5.1,3.85,4.8,1.45,[0.30,0.18,0.18,0.34],0);return slide;}
+
+function _getDeck_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('PMIX_DECK_ID');
+  if (!id) throw new Error('No deck found. Run Step 9a first.');
+  return SlidesApp.openById(id);
+}
+
+
+function stepBuildSlides_1() {
+  var ss=SpreadsheetApp.getActiveSpreadsheet(); var ui=SpreadsheetApp.getUi();
+  showToast_('Step 9a: Creating deck + Blended chapter...');
+  var dateStr=Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'MMM d, yyyy');
+  var deck=_getOrCreateDeck_('RASA PMIX Analysis - '+dateStr);
+  var D=_loadVizData_(ss); var ci={BL:0,IH:0,LO:0,TD:0};
+  var VBL=VIZ_SH.BL;
+  // Slide 1
+  var sl1=_addSlide_(deck); sl1.getBackground().setSolidFill('#7B2FBE');
+  var rasaBig=sl1.insertTextBox('RASA',_in(3.5),_in(0.6),_in(3.0),_in(1.2)); rasaBig.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(72).setBold(true).setForegroundColor('#FFFFFF'); _setAlign_(rasaBig.getText(),SlidesApp.ParagraphAlignment.CENTER);
+  var mainTitle=sl1.insertTextBox('Menu Product Mix Analysis',_in(1.0),_in(2.0),_in(8.0),_in(0.85)); mainTitle.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(30).setBold(true).setForegroundColor('#FFFFFF'); _setAlign_(mainTitle.getText(),SlidesApp.ParagraphAlignment.CENTER);
+  var subTitle=sl1.insertTextBox('('+dateStr+')',_in(2.0),_in(2.95),_in(6.0),_in(0.55)); subTitle.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(18).setForegroundColor('#E0E0E0'); _setAlign_(subTitle.getText(),SlidesApp.ParagraphAlignment.CENTER);
+  var pwrBy=sl1.insertTextBox('powered by  Kutlerri',_in(0.25),_in(4.9),_in(2.5),_in(0.35)); pwrBy.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(10).setForegroundColor('#E0E0E0');
+  _addBottomStripe_(sl1);
+  // Slide 2
+  var sl2=_addSlide_(deck); sl2.getBackground().setSolidFill('#FFFFFF'); _applyChrome_(sl2,'Table of Contents - PMIX Reporting','');
+  var tocItems=[['Chapter 1: Blended View (Overall Performance)',['Menu Mix','Margin Analysis','COGS Analysis','Revenue Analysis','Menu Engineering']],['Chapter 2: Channel-Wise View',['In-Store','Loyalty','3rd Party Delivery']],['Chapter 3: Bikky Customer Insights',['In-Store','Digital Loyalty']]];
+  var tocY=0.75;
+  tocItems.forEach(function(item){var chBox=sl2.insertTextBox(item[0],_in(0.35),_in(tocY),_in(9.3),_in(0.4)); chBox.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(14).setBold(true).setForegroundColor('#7B2FBE'); tocY+=0.42; item[1].forEach(function(b){var bBox=sl2.insertTextBox('\u25CF  '+b,_in(0.6),_in(tocY),_in(8.5),_in(0.28)); bBox.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(11).setForegroundColor('#7B2FBE'); tocY+=0.3;}); tocY+=0.1;});
+  // Slide 3
+  _makeFullPurpleSlide_(deck,'Chapter 1: Blended View (Overall Performance)',null,['Menu Mix','Margin Analysis','COGS Analysis','Revenue Analysis','Menu Engineering']);
+  showToast_('Step 9: Building Blended chapter...');
+  _slideTableChart_(deck,ss,'Menu Mix - by Subcategory','Blended',D.BL_subcat,VBL,ci.BL++,0.12,0.72,2.85,4.5,[0.62,0.38],3.1,0.72,6.7,4.5);
+  _slideTableChart_(deck,ss,'Menu Mix - Entrees Breakdown','Blended',D.BL_entrees,VBL,ci.BL++,0.12,0.72,4.2,4.5,[0.52,0.28,0.20],4.45,0.72,5.4,4.5);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Bowls (Item Name)','Blended',D.BL_bowls,VBL,ci.BL++,ci.BL++,3.8,[0.36,0.22,0.22,0.20]);
+  _slideBYOTwoTables_(deck,ss,'BYO Bowls Distribution - Mains','Blended',D.BL_mainsMod,D.BL_halfMains,VBL,ci.BL++,ci.BL++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Distribution - Extra Mains','Blended',D.BL_extraMain,VBL,ci.BL++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Plates (Item Name)','Blended',D.BL_plates,VBL,ci.BL++,ci.BL++,4.2,[0.36,0.22,0.22,0.20]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Burrito (Item Name)','Blended',D.BL_burrito,VBL,ci.BL++,ci.BL++,3.5,[0.38,0.22,0.22,0.18]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by NA Drinks (Item Name)','Blended',D.BL_nadrinks,VBL,ci.BL++,ci.BL++,3.8,[0.44,0.22,0.20,0.14]);
+  _slideTableOnly_(deck,'Menu Mix - by Alc Drinks (Item Name)','Blended',D.BL_alcdrinks,1.5,0.72,7.0,4.5,[0.44,0.22,0.20,0.14]);
+  _slideTwoCharts_(deck,ss,'Menu Mix - by Alc Drinks (Item Name)','Blended',VBL,ci.BL++,ci.BL++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Sides (Item Name)','Blended',D.BL_sides,VBL,ci.BL++,ci.BL++,3.8,[0.36,0.22,0.22,0.20]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Sweets (Item Name)','Blended',D.BL_sweets,VBL,ci.BL++,ci.BL++,3.5,[0.38,0.24,0.20,0.18]);
+  _slideMenuEngQuadrant_(deck,ss,'Menu Mix - by Menu Engineering Quadrant','Blended',D.BL_engquad,VBL,ci.BL++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - Top 10 Items','Blended',D.BL_top10,VBL,ci.BL++,ci.BL++,3.8,[0.42,0.30,0.28]);
+  _slideTableChart_(deck,ss,'Margin Analysis - by Category','Blended',D.BL_margcat,VBL,ci.BL++,5.1,0.72,4.75,4.5,[0.44,0.28,0.28],0.12,0.72,4.85,4.5);
+  _slideThreeColumnTables_(deck,'Margin Analysis - Most Profitable Entrees, Drinks & Sides','Blended',D.BL_profEnt,D.BL_profNA,D.BL_profSide);
+  _slideThreeColumnTables_(deck,'COGS Analysis - Highest COGS Entrees, Drinks & Sides','Blended',D.BL_cogsEnt,D.BL_cogsNA,D.BL_cogsSide);
+  _slideThreeColumnTables_(deck,'Most Sold Entrees, NA Drinks & Sides By Net Sales','Blended',D.BL_soldEnt,D.BL_soldNA,D.BL_soldSide);
+  _slideTableChart_(deck,ss,'Revenue Analysis - by Categories','Blended',D.BL_revcats,VBL,ci.BL++,0.12,0.72,2.8,4.5,[0.55,0.45],3.1,0.72,6.75,4.5);
+  _slideMenuEngCatSales_(deck,ss,'Menu Engineering - Category & Sales','Blended',D.BL_engcat,VBL,ci.BL++,ci.BL++);
+  _slideTableChart_(deck,ss,'Menu Engineering - Dogs Item Details','Blended',D.BL_dogs,VBL,ci.BL++,0.12,0.72,4.5,4.5,[0.56,0.24,0.20],4.75,0.72,5.1,4.5);
+  _slideFourColumnTables_(deck,'Top Revenue Drivers by Menu Engineering Quadrant','Blended',D.BL_stars,D.BL_puzzle,D.BL_dog,D.BL_plowhorse);
+  SpreadsheetApp.flush();
+  showToast_('Step 9a done: '+deck.getSlides().length+' slides');
+}
+
+function stepBuildSlides_2() {
+  var ss=SpreadsheetApp.getActiveSpreadsheet(); showToast_('Step 9b: Building In-House chapter...');
+  var deck=_getDeck_(); var D=_loadVizData_(ss); var ci={BL:0,IH:0,LO:0,TD:0};
+  _makeFullPurpleSlide_(deck,'Chapter 2: Channel Wise View',null,['In-House','3rd Party Delivery','Loyalty']);
+  _makeFullPurpleSlide_(deck,'Chapter 2.1: In-House (Overview)',null,['Menu Mix','Margin Analysis','COGS Analysis','Revenue Analysis','Menu Engineering']);
+  var VIH=VIZ_SH.IH;
+  _slideTableChart_(deck,ss,'Menu Mix - by Subcategory','In-House',D.IH_subcat,VIH,ci.IH++,0.12,0.72,2.85,4.5,[0.62,0.38],3.1,0.72,6.7,4.5);
+  _slideTableChart_(deck,ss,'Menu Mix - Entrees Breakdown','In-House',D.IH_entrees,VIH,ci.IH++,0.12,0.72,5.0,4.5,[0.44,0.28,0.28],5.25,0.72,4.6,4.5);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Bowls (Item Name)','In-House',D.IH_bowls,VIH,ci.IH++,ci.IH++,3.5,[0.30,0.16,0.16,0.14,0.12,0.12]);
+  _slideBYOTwoTables_(deck,ss,'BYO Bowls Breakdown - Mains','In-House',D.IH_mainsMod,D.IH_halfMains,VIH,ci.IH++,ci.IH++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Extra Mains','In-House',D.IH_extraMain,VIH,ci.IH++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Plates (Item Name)','In-House',D.IH_plates,VIH,ci.IH++,ci.IH++,4.2,[0.28,0.16,0.16,0.14,0.13,0.13]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Burrito (Item Name)','In-House',D.IH_burrito,VIH,ci.IH++,ci.IH++,4.0,[0.28,0.16,0.16,0.14,0.13,0.13]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by NA Drinks (Item Name)','In-House',D.IH_nadrinks,VIH,ci.IH++,ci.IH++,3.8,[0.44,0.22,0.20,0.14]);
+  _slideTableOnly_(deck,'Menu Mix - by Alc Drinks (Item Name)','In-House',D.IH_alcdrinks,1.5,0.72,7.0,4.5,[0.44,0.22,0.20,0.14]);
+  _slideTwoCharts_(deck,ss,'Menu Mix - by Alc Drinks (Item Name)','In-House',VIH,ci.IH++,ci.IH++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Sides (Item Name)','In-House',D.IH_sides,VIH,ci.IH++,ci.IH++,3.5,[0.28,0.16,0.16,0.14,0.13,0.13]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Sweets (Item Name)','In-House',D.IH_sweets,VIH,ci.IH++,ci.IH++,3.5,[0.28,0.16,0.16,0.14,0.13,0.13]);
+  _slideMenuEngQuadrant_(deck,ss,'Menu Mix - by Menu Engineering Quadrant','In-House',D.IH_engquad,VIH,ci.IH++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - Top 10 Items','In-House',D.IH_top10,VIH,ci.IH++,ci.IH++,3.8,[0.30,0.18,0.18,0.17,0.17]);
+  _slideTableChart_(deck,ss,'Margin Analysis - by Category','In-House',D.IH_margcat,VIH,ci.IH++,5.1,0.72,4.75,4.5,[0.55,0.45],0.12,0.72,4.85,4.5);
+  _slideThreeColumnTables_(deck,'Margin Analysis - Most Profitable Entrees, NA Drinks & Sides','In-House',D.IH_entrees,D.IH_nadrinks,D.IH_sides);
+  _slideThreeColumnTables_(deck,'COGS Analysis - Highest COGS Entrees, NA Drinks & Sides','In-House',D.IH_entrees,D.IH_nadrinks,D.IH_sides);
+  _slideThreeColumnTables_(deck,'Most Sold Entrees, NA Drinks & Sides By Overall Net Sales','In-House',D.IH_entrees,D.IH_nadrinks,D.IH_sides);
+  _slideTableChart_(deck,ss,'Revenue Analysis - by Category','In-House',D.IH_revcats,VIH,ci.IH++,0.12,0.72,2.8,4.5,[0.55,0.45],3.1,0.72,6.75,4.5);
+  _slideMenuEngCatSales_(deck,ss,'Menu Engineering - Category & Sales','In-House',D.IH_engcat,VIH,ci.IH++,ci.IH++);
+  _slideTableChart_(deck,ss,'Menu Engineering - Dogs Item Details','In-House',D.IH_dogs,VIH,ci.IH++,0.12,0.72,4.5,4.5,[0.56,0.24,0.20],4.75,0.72,5.1,4.5);
+  _slideFourColumnTables_(deck,'Top Revenue Drivers by Menu Engineering Quadrant','In-House',D.IH_stars,D.IH_stars,D.IH_dogs,D.IH_stars);
+  SpreadsheetApp.flush(); showToast_('Step 9b done: '+deck.getSlides().length+' slides');
+}
+
+function stepBuildSlides_3() {
+  var ss=SpreadsheetApp.getActiveSpreadsheet(); showToast_('Step 9c: Building 3PD chapter...');
+  var deck=_getDeck_(); var D=_loadVizData_(ss); var ci={BL:0,IH:0,LO:0,TD:0};
+  _makeFullPurpleSlide_(deck,'Chapter 2.2: 3rd Party Delivery (Overview)',null,['Menu Mix','Margin Analysis','COGS Analysis','Revenue Analysis','Menu Engineering']);
+  var VTD=VIZ_SH.TD;
+  _slideTableChart_(deck,ss,'Menu Mix - by Subcategory','3PD',D.TD_subcat,VTD,ci.TD++,0.12,0.72,2.85,4.5,[0.62,0.38],3.1,0.72,6.7,4.5);
+  _slideTableChart_(deck,ss,'Menu Mix - Entrees Breakdown','3PD',D.TD_entrees,VTD,ci.TD++,0.12,0.72,4.2,4.5,[0.52,0.28,0.20],4.45,0.72,5.4,4.5);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Bowls (Item Name)','3PD',D.TD_bowls,VTD,ci.TD++,ci.TD++,3.8,[0.36,0.22,0.22,0.20]);
+  _slideBasesTables_(deck,ss,'BYO Bowls Breakdown - Bases','Loyalty + 3PD',D.LO_bases_sal,D.LO_bases_gra,D.LO_bases_gg,VIZ_SH.LO,ci.LO++,ci.LO++,ci.LO++);
+  _slideBYOTwoTables_(deck,ss,'BYO Bowls Breakdown - Mains','Loyalty + 3PD',D.LO_mainsMod,D.LO_halfMains,VIZ_SH.LO,ci.LO++,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Extra Mains','Loyalty + 3PD',D.LO_extraMain,VIZ_SH.LO,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Toppings','Loyalty + 3PD',D.LO_toppings,VIZ_SH.LO,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Sauce','Loyalty + 3PD',D.LO_sauce,VIZ_SH.LO,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Veggies','Loyalty + 3PD',D.LO_veggies,VIZ_SH.LO,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Make It a Meal','Loyalty + 3PD',D.LO_meal,VIZ_SH.LO,ci.LO++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Plates (Item Name)','3PD',D.TD_plates,VTD,ci.TD++,ci.TD++,3.8,[0.36,0.22,0.22,0.20]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Burrito (Item Name)','3PD',D.TD_burrito,VTD,ci.TD++,ci.TD++,3.5,[0.38,0.22,0.22,0.18]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by NA Drinks (Item Name)','3PD',D.TD_nadrinks,VTD,ci.TD++,ci.TD++,3.8,[0.44,0.22,0.20,0.14]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Sides (Item Name)','3PD',D.TD_sides,VTD,ci.TD++,ci.TD++,3.8,[0.36,0.22,0.22,0.20]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Sweets (Item Name)','3PD',D.TD_sweets,VTD,ci.TD++,ci.TD++,3.5,[0.38,0.24,0.20,0.18]);
+  _slideMenuEngQuadrant_(deck,ss,'Menu Mix - by Menu Engineering Quadrant','3PD',D.TD_engquad,VTD,ci.TD++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - Top 10 Items','3PD',D.TD_top10,VTD,ci.TD++,ci.TD++,3.8,[0.42,0.30,0.28]);
+  _slideTableChart_(deck,ss,'Margin Analysis - by Category','3PD',D.TD_margcat,VTD,ci.TD++,5.1,0.72,4.75,4.5,[0.55,0.45],0.12,0.72,4.85,4.5);
+  _slideThreeColumnTables_(deck,'Margin Analysis - Most Profitable Entrees, Drinks & Sides','3PD',D.TD_entrees,D.TD_nadrinks,D.TD_sides);
+  _slideThreeColumnTables_(deck,'COGS Analysis - Highest COGS Entrees, Drinks & Sides','3PD',D.TD_entrees,D.TD_nadrinks,D.TD_sides);
+  _slideThreeColumnTables_(deck,'Most Sold Entrees, NA Drinks & Sides By Net Sales','3PD',D.TD_entrees,D.TD_nadrinks,D.TD_sides);
+  _slideTableChart_(deck,ss,'Revenue Analysis - by Category','3PD',D.TD_revcats,VTD,ci.TD++,0.12,0.72,2.8,4.5,[0.55,0.45],3.1,0.72,6.75,4.5);
+  _slideMenuEngCatSales_(deck,ss,'Menu Engineering - Category & Sales','3PD',D.TD_engcat,VTD,ci.TD++,ci.TD++);
+  _slideTableChart_(deck,ss,'Menu Engineering - Dogs Item Details','3PD',D.TD_dogs,VTD,ci.TD++,0.12,0.72,4.5,4.5,[0.56,0.24,0.20],4.75,0.72,5.1,4.5);
+  _slideFourColumnTables_(deck,'Top Revenue Drivers by Menu Engineering Quadrant','3PD',D.TD_stars,D.TD_dogs,D.TD_dogs,D.TD_dogs);
+  SpreadsheetApp.flush(); showToast_('Step 9c done: '+deck.getSlides().length+' slides');
+}
+
+function stepBuildSlides_4() {
+  var ui=SpreadsheetApp.getUi();
+  var ss=SpreadsheetApp.getActiveSpreadsheet(); showToast_('Step 9d: Building Loyalty chapter...');
+  var deck=_getDeck_(); var D=_loadVizData_(ss); var ci={BL:0,IH:0,LO:0,TD:0};
+  _makeFullPurpleSlide_(deck,'Chapter 2.3: Loyalty (Overview)',null,['Menu Mix','Margin Analysis','COGS Analysis','Revenue Analysis','Menu Engineering']);
+  var VLO=VIZ_SH.LO;
+  _slideTableChart_(deck,ss,'Menu Mix - by Subcategory','Loyalty',D.LO_subcat,VLO,ci.LO++,0.12,0.72,2.85,4.5,[0.62,0.38],3.1,0.72,6.7,4.5);
+  _slideTableChart_(deck,ss,'Menu Mix - Entrees Breakdown','Loyalty',D.LO_entrees,VLO,ci.LO++,0.12,0.72,5.0,4.5,[0.40,0.24,0.20,0.16],5.25,0.72,4.6,4.5);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Bowls (Item Name)','Loyalty',D.LO_bowls,VLO,ci.LO++,ci.LO++,3.5,[0.28,0.16,0.16,0.14,0.13,0.13]);
+  _slideBasesTables_(deck,ss,'BYO Bowls Breakdown - Bases','Loyalty + 3PD',D.LO_bases_sal,D.LO_bases_gra,D.LO_bases_gg,VLO,ci.LO++,ci.LO++,ci.LO++);
+  _slideBYOTwoTables_(deck,ss,'BYO Bowls Breakdown - Mains','Loyalty + 3PD',D.LO_mainsMod,D.LO_halfMains,VLO,ci.LO++,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Extra Mains','Loyalty + 3PD',D.LO_extraMain,VLO,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Toppings','Loyalty + 3PD',D.LO_toppings,VLO,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Sauce','Loyalty + 3PD',D.LO_sauce,VLO,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Veggies','Loyalty + 3PD',D.LO_veggies,VLO,ci.LO++);
+  _slideBYOOneTable_(deck,ss,'BYO Bowls Breakdown - Make It a Meal','Loyalty + 3PD',D.LO_meal,VLO,ci.LO++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Plates (Item Name)','Loyalty',D.LO_plates,VLO,ci.LO++,ci.LO++,3.5,[0.36,0.22,0.22,0.20]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Burrito (Item Name)','Loyalty',D.LO_burrito,VLO,ci.LO++,ci.LO++,3.5,[0.38,0.22,0.22,0.18]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by NA Drinks (Item Name)','Loyalty',D.LO_nadrinks,VLO,ci.LO++,ci.LO++,3.8,[0.44,0.22,0.20,0.14]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Sides (Item Name)','Loyalty',D.LO_sides,VLO,ci.LO++,ci.LO++,3.8,[0.36,0.22,0.22,0.20]);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - by Sweets (Item Name)','Loyalty',D.LO_sweets,VLO,ci.LO++,ci.LO++,3.5,[0.38,0.24,0.20,0.18]);
+  _slideMenuEngQuadrant_(deck,ss,'Menu Mix - by Menu Engineering Quadrant','Loyalty',D.LO_engquad,VLO,ci.LO++);
+  _slideTableTwoCharts_(deck,ss,'Menu Mix - Top 10 Items','Loyalty',D.LO_top10,VLO,ci.LO++,ci.LO++,3.8,[0.30,0.18,0.18,0.17,0.17]);
+  _slideTableChart_(deck,ss,'Margin Analysis - by Category','Loyalty',D.LO_margcat,VLO,ci.LO++,5.1,0.72,4.75,4.5,[0.55,0.45],0.12,0.72,4.85,4.5);
+  _slideThreeColumnTables_(deck,'Margin Analysis - Most Profitable Entrees, Drinks & Sides','Loyalty',D.LO_entrees,D.LO_nadrinks,D.LO_sides);
+  _slideThreeColumnTables_(deck,'COGS Analysis - Highest COGS Entrees, Drinks & Sides','Loyalty',D.LO_entrees,D.LO_nadrinks,D.LO_sides);
+  _slideThreeColumnTables_(deck,'Revenue Analysis - Most Sold Entrees, NA Drinks & Sides','Loyalty',D.LO_entrees,D.LO_nadrinks,D.LO_sides);
+  _slideTableChart_(deck,ss,'Revenue Analysis - by Category','Loyalty',D.LO_revcats,VLO,ci.LO++,0.12,0.72,2.8,4.5,[0.55,0.45],3.1,0.72,6.75,4.5);
+  _slideMenuEngCatSales_(deck,ss,'Menu Engineering - Category & Sales','Loyalty',D.LO_engcat,VLO,ci.LO++,ci.LO++);
+  _slideTableChart_(deck,ss,'Menu Engineering - Dogs Item Details','Loyalty',D.LO_dogs,VLO,ci.LO++,0.12,0.72,4.5,4.5,[0.56,0.24,0.20],4.75,0.72,5.1,4.5);
+  _slideFourColumnTables_(deck,'Top Revenue Drivers by Menu Engineering Quadrant','Loyalty',D.LO_stars,D.LO_dogs,D.LO_dogs,D.LO_dogs);
+  // Slide 102 Thank You
+  var sl102=_addSlide_(deck); sl102.getBackground().setSolidFill('#7B2FBE');
+  var thankYou=sl102.insertTextBox('Thank you',_in(1.0),_in(1.2),_in(8.0),_in(2.5)); thankYou.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(80).setBold(true).setForegroundColor('#FFFFFF'); _setAlign_(thankYou.getText(),SlidesApp.ParagraphAlignment.CENTER);
+  var contact=sl102.insertTextBox('Trey Moats: trey@rasa.co  (202) 417-0636\nRahul Vinod: rahul@rasa.co  (202) 725-4634\n\n600 Massachusetts Ave NW, STE 250, WDC, 20001\nwww.rasa.co',_in(1.5),_in(3.8),_in(7.0),_in(1.2)); contact.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(11).setForegroundColor('#FFFFFF'); _setAlign_(contact.getText(),SlidesApp.ParagraphAlignment.CENTER);
+  var kutTR=sl102.insertTextBox('Kutlerri',_in(8.9),_in(0.12),_in(1.0),_in(0.35)); kutTR.getText().getTextStyle().setFontFamily('Montserrat').setFontSize(9).setBold(true).setForegroundColor('#FFFFFF');
+  _addBottomStripe_(sl102);
+  showToast_('Step 9: Slides deck complete!');
+  var deckUrl='https://docs.google.com/presentation/d/'+deck.getId();
+  ui.alert('Step 9 - Slides Complete','Deck generated successfully!\n\nTotal slides: '+deck.getSlides().length+'\n\nOpen deck:\n'+deckUrl,ui.ButtonSet.OK);
+  SpreadsheetApp.flush();
+}
+
+function stepBuildSlides() {
+  stepBuildSlides_1(); stepBuildSlides_2(); stepBuildSlides_3(); stepBuildSlides_4();
+}
+
+function stepRefreshSlideCharts() {
+  var props=PropertiesService.getScriptProperties(); var deckId=props.getProperty('PMIX_DECK_ID');
+  if (!deckId) { SpreadsheetApp.getUi().alert('No deck found. Run Step 9 first.'); return; }
+  var deck=SlidesApp.openById(deckId); var refreshed=0;
+  deck.getSlides().forEach(function(sl){ sl.getSheetsCharts().forEach(function(chart){ try{chart.refresh();refreshed++;}catch(e){} }); });
+  showToast_('Refreshed '+refreshed+' linked charts in deck');
+  SpreadsheetApp.getUi().alert('Charts Refreshed',refreshed+' linked charts updated from latest Sheets data.',SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+// 
+// MENU BAR
+// 
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu(' PMIX Pipeline')
+    .addItem('Step 0  Validate Imports',       'stepValidateImports')
+    .addItem('Step 7  Verify Results',          'stepVerifyResults')
+    .addItem('Step 8  Build Viz Sheets',         'stepBuildVizSheets')
+    .addItem('Step 9  Build Slides (All)',         'stepBuildSlides')
+    .addItem('Step 9a Slides - Title+Blended',     'stepBuildSlides_1')
+    .addItem('Step 9b Slides - In-House',          'stepBuildSlides_2')
+    .addItem('Step 9c Slides - 3PD',               'stepBuildSlides_3')
+    .addItem('Step 9d Slides - Loyalty',           'stepBuildSlides_4')
+    .addItem('   Refresh Slide Charts',            'stepRefreshSlideCharts')
+    .addSeparator()
+    .addItem('Run Full Pipeline',               'runFullPipeline')
+    .addSeparator()
+    .addItem('Step 1  Clean Menu Breakdown',    'stepCleanMenuBreakdown')
+    .addItem('Step 2  Clean Modifiers',          'stepCleanModifiers')
+    .addItem('Step 3  Build Pink Cost Sheets',   'stepBuildPinkSheets')
+    .addItem('Step 4  Build Channel Masters',    'stepBuildChannelMasters')
+    .addItem('Step 5  Build Blended Master',     'stepBuildBlendedMaster')
+    .addItem('Step 6  Build Overall Master',     'stepBuildOverallMaster')
+    .addItem('Step 6b Bikky Rates',              'stepPopulateBikky')
+    .addSeparator()
+    .addItem('Validate Raw Data',                'validateRawData')
+    .addItem('Check Sheet Names',                'checkSheetNames')
+    .addToUi();
+}
+
+// 
+// MASTER RUNNER
+// 
+function runFullPipeline() {
+  const ui   = SpreadsheetApp.getUi();
+  const resp = ui.alert(' PMIX Pipeline',
+    'This will rebuild all Clean, Master and Blended sheets from Raw data.\n\n' +
+    'Make sure Raw Menu Breakdown, Raw Modifiers, and Modifier costs are pasted first.\n\nContinue?',
+    ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+  const t0 = Date.now();
+  try {
+    showToast_('Step 1/5  Cleaning Menu Breakdown');
+    stepCleanMenuBreakdown();
+    showToast_('Step 2/5  Cleaning Modifiers');
+    stepCleanModifiers();
+    showToast_('Step 3/7  Building Pink Cost Sheets');
+    _runBuildPinkSheets_();
+    showToast_('Step 4/7  Building Channel Masters');
+    stepBuildChannelMasters();
+    showToast_('Step 5/7  Building Blended Master');
+    stepBuildBlendedMaster();
+    showToast_('Step 6/7  Building Overall Master');
+    stepBuildOverallMaster();
+    showToast_('Step 6b  Applying Bikky Rates');
+    stepPopulateBikky();
+    showToast_('Step 7/7  Verifying Results');
+    stepVerifyResults();
+    showToast_('Step 8/8  Building Viz Sheets');
+    stepBuildVizSheets();
+    showToast_('Step 9/9  Building Slides Deck');
+    stepBuildSlides_1();
+    stepBuildSlides_2();
+    stepBuildSlides_3();
+    stepBuildSlides_4();
+    const secs = ((Date.now() - t0) / 1000).toFixed(1);
+    ui.alert(' Pipeline Complete',
+      `All 9 steps finished in ${secs}s.\n\nReview master sheets and refresh Pivot Tables.`,
+      ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert(' Pipeline Error', `Error: ${e.message}\n\nStack:\n${e.stack}`, ui.ButtonSet.OK);
+  }
+}
+
+
+// 
+// STEP 1  Clean Menu Breakdown
+// 
+function stepCleanMenuBreakdown() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const raw = getSheet_(SH.RAW_MB);
+  const lkp = getSheet_(SH.LOOKUP_MB);
+  const icl = getSheet_(SH.ITEM_COST);
+  const out = getOrCreateSheet_(SH.CLEAN_MB);
+
+  const lkpData = lkp.getDataRange().getValues();
+  const nameMap = {};
+  for (let r = 2; r < lkpData.length; r++) {
+    const raw_ = String(lkpData[r][0] || '').trim();
+    const cln  = String(lkpData[r][1] || '').trim() || raw_;
+    if (raw_) nameMap[raw_] = cln;
+  }
+  Object.assign(nameMap, BYO_NAME_MAP);
+
+  const iclData = icl.getDataRange().getValues();
+  const costMap = {};
+  for (let r = 1; r < iclData.length; r++) {
+    const menu    = String(iclData[r][0] || '').trim();
+    const rawName = String(iclData[r][2] || '').trim();
+    const clnName = String(iclData[r][3] || '').trim();
+    const cat1    = String(iclData[r][4] || '').trim();
+    const cat2    = String(iclData[r][5] || '').trim();
+    const costRaw = iclData[r][6];
+    const cost    = costRaw ? parseFloat(String(costRaw).replace('$','').trim()) : null;
+    const channel = MENU_CHANNEL_MAP[menu] || menu;
+    const entry   = { cat1, cat2, cost: isNaN(cost) ? null : cost };
+    if (rawName) costMap[`${channel}||${rawName}`] = entry;
+    if (clnName) costMap[`${channel}||${clnName}`] = entry;
+  }
+
+  const rawData = raw.getDataRange().getValues();
+  const output  = [[
+    'Menu','Menu Group','Item Name','Modifier',
+    'Avg Price','Quantity','Gross Sales','Discount Amount','Net Sales',
+    'Item name_updated','Category 1','Category 2',
+    'Avg Cost','Cost Margin','Profit %',
+    'Total Cost','Total Cost Margin','Profit % (Final)',
+    'Menu (For Kutlerri)'
+  ]];
+
+  for (let r = 1; r < rawData.length; r++) {
+    const [menuRaw, grp, itemRaw, modifier,
+           avgPriceRaw, qtyRaw, grossRaw, discRaw, netSalesRaw] = rawData[r];
+
+    if (!itemRaw || !menuRaw) continue;
+
+    const menuStr = String(menuRaw).trim();
+    const grpStr  = String(grp || '').trim();
+    const itemStr = String(itemRaw).trim();
+
+    if (EXCLUDED_MENUS.has(menuStr))  continue;
+    if (EXCLUDED_GROUPS.has(grpStr))  continue;
+    if (EXCLUDED_ITEMS.has(itemStr))  continue;
+
+    const cleanMenu = MENU_CHANNEL_MAP[menuStr];
+    if (!cleanMenu) continue;
+
+    const cleanName = nameMap[itemStr] || itemStr;
+
+    const cEntry = costMap[`${cleanMenu}||${itemStr}`]
+                || costMap[`${cleanMenu}||${cleanName}`]
+                || {};
+    const cat1   = cEntry.cat1 || '';
+    const cat2   = cEntry.cat2 || '';
+    const avgCost= cEntry.cost !== undefined ? cEntry.cost : null;
+
+    const price    = Number(avgPriceRaw) || 0;
+    const qty      = Number(qtyRaw)      || 0;
+    const gross    = Number(grossRaw)    || 0;
+    const disc     = Number(discRaw)     || 0;
+    const netSales = Number(netSalesRaw) || 0;
+
+    const costMargin  = avgCost !== null ? price - avgCost          : '';
+    const profitPct   = avgCost !== null && price ? (price - avgCost) / price : '';
+    const totalCost   = avgCost !== null ? avgCost * qty            : '';
+    const totalCostMg = costMargin !== '' ? costMargin * qty        : '';
+    const profitFinal = totalCostMg !== '' && netSales ? totalCostMg / netSales : '';
+
+    output.push([
+      cleanMenu, grpStr,
+      itemStr,
+      modifier || '',
+      price, qty, gross, disc, netSales,
+      cleanName,
+      cat1, cat2,
+      avgCost !== null ? avgCost : '',
+      costMargin, profitPct,
+      totalCost, totalCostMg, profitFinal,
+      cleanMenu
+    ]);
+  }
+
+  out.clearContents();
+  out.getRange(1, 1, output.length, output[0].length).setValues(output);
+  const dr = output.length - 1;
+  if (dr > 0) {
+    out.getRange(2,5,dr,1).setNumberFormat('$#,##0.00');
+    out.getRange(2,9,dr,1).setNumberFormat('$#,##0.00');
+    out.getRange(2,13,dr,1).setNumberFormat('$#,##0.00');
+    out.getRange(2,15,dr,1).setNumberFormat('0.00%');
+    out.getRange(2,18,dr,1).setNumberFormat('0.00%');
+    out.getRange(1,1,1,output[0].length)
+       .setFontWeight('bold').setBackground('#4B0082').setFontColor('#FFFFFF');
+    out.setFrozenRows(1);
+  }
+  showToast_(` Clean Menu Breakdown: ${dr} rows`);
+}
+
+// 
+// _inferModType_  Pattern-based modifier type inference
+// 
+// Used as Fallback 4 in stepCleanModifiers when a modifier is not found in
+// the Lookup sheet and not in MODTYPE_OVERRIDES. Covers all modifier categories
+// seen in RASA's menu based on name patterns, so new items added to the menu
+// are classified automatically without manual Lookup updates.
+// Genuinely unknown modifiers return null and are surfaced in Step 0 Validation.
+// 
+function _inferModType_(modName) {
+  if (!modName) return null;
+  var n = modName.toLowerCase().trim();
+
+  // ── SKIP / NO ──────────────────────────────────────────────────────────────
+  if (/^skip /.test(n)) return null; // zero-cost, keep as-is
+
+  // ── DRINKS ─────────────────────────────────────────────────────────────────
+  if (/lemonade|limeade|punch|cooler|spiced tea|iced tea|kombucha/.test(n)) return 'Drink';
+  if (/mango lassi|strawberry lassi|lassi soft serve/.test(n)) return 'Drink';
+  if (/fresh young coconut|open water|spindrift|lacroix|olipop|maine root fountain|yerba mate/.test(n)) return 'Drink';
+  if (/\bjuice\b/.test(n) && !/catering/.test(n)) return 'Drink';
+  if (/\bmasala chai\b/.test(n) && !/cookie|soft serve/.test(n)) return 'Drink';
+  if (/no kids juice/.test(n)) return 'Drink';
+  if (/ruby citrus|golden ginger lemonade|mint limeade|mint cardamom limeade|mint cardamon limeade|turmeric ginger lemonade|kokum punch|unsweetened spiced tea/.test(n)) return 'Drink';
+  if (/maine root - blueberry/.test(n)) return 'Drink';
+
+  // ── SWEETS ─────────────────────────────────────────────────────────────────
+  if (/chai cookie|masala chai cookie/.test(n)) return 'Sweet';
+  if (/soft serve/.test(n) && !/catering/.test(n)) return 'Sweet';
+  if (/sweet cardamom yogurt/.test(n)) return 'Sweet';
+
+  // ── CATERING - SIDE (bulk catering add-ons) ────────────────────────────────
+  if (/\d+\s*chai cookie basket|\bsamosa tray\b/.test(n)) return 'Catering - Side';
+  if (/(plain|garlic|combo) naan - (large|small)/.test(n)) return 'Catering - Side';
+
+  // ── SIDE - CHUTNEY AND DRESSING ────────────────────────────────────────────
+  if (/that fire hot sauce - side/.test(n)) return 'Side - Chutney and Dressing';
+  if (/taher byo bowl/.test(n)) return 'Side - Chutney and Dressing';
+  if (/(chutney|vinaigrette|cumin yogurt) - side$/.test(n)) return 'Side - Chutney and Dressing';
+  if (/^spicy mango chutney|^sweet tamarind chutney/.test(n)) return 'Side - Chutney and Dressing';
+
+  // ── CHUTNEY AND DRESSING ───────────────────────────────────────────────────
+  if (/\bchutney\b/.test(n) && !/ - side$/.test(n)) return 'Chutney and Dressing';
+  if (/\bvinaigrette\b/.test(n) && !/ - side$/.test(n) && !/portion cup/.test(n)) return 'Chutney and Dressing';
+  if (/toasted cumin yogurt/.test(n) && !/ - side$/.test(n)) return 'Chutney and Dressing';
+
+  // ── TOPPINGS ───────────────────────────────────────────────────────────────
+  if (/kachumber salad|carrot slaw|cucumber cubes|indian street corn|pickled onion/.test(n)) return 'Topping';
+  if (/roasted lentil|shredded paneer cheese|mango salsa|avocado/.test(n)) return 'Topping';
+  if (/coconut curry shrimp|chili lime vinaigrette - portion|babe rose/.test(n)) return 'Topping';
+  if (/^romaine$/.test(n)) return 'Topping';
+
+  // ── SAUCE ──────────────────────────────────────────────────────────────────
+  if (/tomato garlic|tamarind chili|peanut sesame|coconut ginger/.test(n)) return 'Sauce';
+  if (/^tikka masala$/.test(n)) return 'Sauce';
+  if (/ sauce$/.test(n) && !/hot sauce|butter chicken sauce/.test(n)) return 'Sauce';
+
+  // ── VEGGIE ─────────────────────────────────────────────────────────────────
+  if (/sauteed spinach|spiced chickpeas/.test(n)) return 'Veggie';
+
+  // ── EXTRA MAIN ─────────────────────────────────────────────────────────────
+  if (/^extra /.test(n)) return 'Extra Main';
+
+  // ── 1/2 MAIN ───────────────────────────────────────────────────────────────
+  if (/^1\/2 (chicken|tikka|roasted veg|spinach|tofu|spicy chili)/.test(n)) return '1/2 Main';
+
+  // ── 1/2 BASE ───────────────────────────────────────────────────────────────
+  if (/^1\/2 /.test(n)) return '1/2 Base';
+
+  // ── BASE ───────────────────────────────────────────────────────────────────
+  if (/1\/2 and 1\/2 (base|grains|greens)/.test(n)) return 'Base';
+  if (/basmati rice|lemon turmeric rice|masala quinoa|south indian rice noodles/.test(n) && !/1\/2|catering/.test(n)) return 'Base';
+  if (/romaine lettuce|arugula|baby spinach|sexygreens|microgreens/.test(n) && !/1\/2/.test(n)) return 'Base';
+
+  // ── PLATE - MAIN ───────────────────────────────────────────────────────────
+  if (/^(butter chicken|saag paneer|saag chole|coconut veggie curry|chicken tikka masala|aloo gobhi|paneer butter masala|chicken curry|lamb kofta korma|paneer tikka masala)/.test(n)) return 'Plate - Main';
+
+  // ── KIDS - MAIN ────────────────────────────────────────────────────────────
+  if (/- party pack$|- kids$/.test(n)) return 'Kids - Main';
+  if (/roasted vegetables - kids/.test(n)) return 'Kids - Main';
+
+  // ── MAIN (BYO bowl mains) ──────────────────────────────────────────────────
+  if (/^(lamb kebab|organic tandoori paneer|roasted vegetables|soft serve cherry blossom)$/.test(n)) return 'Main';
+  if (/1\/2 and 1\/2 mains/.test(n)) return 'Main';
+
+  // ── SIDE (make-it-meal) ────────────────────────────────────────────────────
+  if (/garlic naan|plain naan|\broti\b/.test(n) && !/catering/.test(n)) return 'Side';
+  if (/\bsamosa\b/.test(n) && !/catering|tray/.test(n)) return 'Side';
+  if (/cucumber raita/.test(n)) return 'Side';
+  if (/namaste white|canned beer|canned wine/.test(n)) return 'Side';
+  if (/hot sauce.*bottle|bottle.*hot sauce/.test(n)) return 'Side';
+
+  // genuinely unknown — will be flagged by Step 0 Validation
+  return null;
+}
+
+// 
+// STEP 2  Clean Modifiers
+// 
+function stepCleanModifiers() {
+  const ss      = SpreadsheetApp.getActiveSpreadsheet();
+  const rawMod  = getSheet_(SH.RAW_MOD);
+  const lkpType = getSheet_(SH.LOOKUP_TYPES);
+  const out     = getOrCreateSheet_(SH.CLEAN_MOD);
+
+  const lkpData    = lkpType.getDataRange().getValues();
+  const modTypeMap = {};
+  const itemTypeMap= {};
+  for (let r = 1; r < lkpData.length; r++) {
+    const mod   = String(lkpData[r][0] || '').trim();
+    const itype = String(lkpData[r][1] || '').trim();
+    const mtype = String(lkpData[r][3] || '').trim();
+    const pItem = String(lkpData[r][9]  || '').trim();
+    const pType = String(lkpData[r][10] || '').trim();
+    if (mod && itype) modTypeMap[`${mod}|${itype}`] = mtype;
+    if (pItem && pType) itemTypeMap[pItem] = pType;
+  }
+
+  const PARENT_ALIASES = {
+    'Spiced Cauli + Quinoa Bowl':        'Set Bowl - Online',
+    'Cauliflower + Quinoa Bowl':         'Set Bowl - Online',
+    'Grain Bowl':                        'BYO Grain Bowl - Online',
+    'Grain Bowl - In House':             'BYO Grain Bowl - In House',
+    'Salad Bowl':                        'BYO Salad Bowl - Online',
+    'Salad Bowl - In House':             'BYO Salad Bowl - In House',
+    'Greens + Grains Bowl':              'BYO Greens and Grains Bowl - Online',
+    'Greens + Grains Bowl - In House':   'BYO Greens and Grains Bowl - In House',
+  };
+  Object.keys(PARENT_ALIASES).forEach(function(alias) {
+    if (!itemTypeMap[alias]) itemTypeMap[alias] = PARENT_ALIASES[alias];
+  });
+
+  const mcData  = getSheet_(SH.MOD_COSTS).getDataRange().getValues();
+  const nameMap = {};
+  // Build nameMap preferring the plain/canonical entry when R365 has multiple
+  // recipes for the same base modifier (e.g. 'Basmati Rice' vs
+  // 'Basmati Rice - Catering - Additional Item'). If we just take the first
+  // match, a catering variant that appears first in R365 would rename every
+  // normal 'Basmati Rice' modifier to '...Catering...' in Clean Modifiers,
+  // causing isCateringModifier() to drop them from pink sheets.
+  // Priority order: plain name > everything else. Lower score = higher priority.
+  function _namePriority_(cleanNm) {
+    var n = cleanNm.toLowerCase();
+    if (/catering|party pack|hungry|sharebite|zerocater/i.test(n)) return 3;
+    if (/- side$|- classic$|- desi deluxe$|- batch$|- small$|- large$/i.test(n)) return 2;
+    return 1; // plain canonical name — highest priority
+  }
+  const nameMapScore = {}; // tracks priority of current winner
+  for (let r = 1; r < mcData.length; r++) {
+    const recName  = String(mcData[r][0] || '').trim();
+    const cleanNm  = String(mcData[r][1] || '').trim();
+    if (!recName.startsWith('MI ') || !cleanNm) continue;
+    const rawName  = recName.slice(3);
+    const key      = _normMod_(rawName);
+    const score    = _namePriority_(cleanNm);
+    if (!(key in nameMap) || score < nameMapScore[key]) {
+      nameMap[key]      = cleanNm;
+      nameMapScore[key] = score;
+    }
+  }
+
+  const rawData = rawMod.getDataRange().getValues();
+  const output  = [['modifier','Parent item','Item Type','','Menu Group','Qty','Net Amount','Concat','Modifier type_new']];
+
+  for (let r = 1; r < rawData.length; r++) {
+    const [modName, parentItem, menuGrp, qty, netAmt] = rawData[r];
+    if (!modName) continue;
+    const grp    = String(menuGrp    || '').trim();
+    const parent = String(parentItem || '').trim();
+    const mod    = String(modName    || '').trim();
+    if (EXCLUDED_GROUPS.has(grp))      continue;
+    if (grp === '-' && parent === '-') continue;
+
+    const itemType = itemTypeMap[parent] || '';
+    let modType = modTypeMap[`${mod}|${itemType}`] || '';
+
+    if (!modType && mod.startsWith('Organic ')) {
+      modType = modTypeMap[`${mod.slice(8)}|${itemType}`] || '';
+    }
+    if (!modType && mod.startsWith('Extra Organic ')) {
+      modType = modTypeMap[`Extra ${mod.slice(14)}|${itemType}`] || '';
+    }
+    // Fallback 3: explicit name overrides for known edge cases
+    if (!modType) {
+      const MODTYPE_OVERRIDES = {
+        'Spicy Mango Chutney':           'Side - Chutney and Dressing',
+        'Spicy Mango Chutney - Side':    'Side - Chutney and Dressing',
+        'Sweet Tamarind Chutney':        'Side - Chutney and Dressing',
+        'Sweet Tamarind Chutney - Side': 'Side - Chutney and Dressing',
+        'Kokum Vinaigrette - Side':      'Side - Chutney and Dressing',
+        'Chili Lime Vinaigrette - Side': 'Side - Chutney and Dressing',
+        'Mint Cilantro Chutney - Side':  'Side - Chutney and Dressing',
+        'Toasted Cumin Yogurt - Side':   'Side - Chutney and Dressing',
+        'Ginger Tamarind Chutney - Side':'Side - Chutney and Dressing',
+        'That Fire Hot Sauce (Bottle)':  'Side',
+        'Extra Spicy Chili Chicken':     'Extra Main',
+        'Extra Organic Tandoori Paneer': 'Extra Main',
+        'Chicken Curry':                 'Plate - Main',
+        'Lamb Kofta Korma':              'Plate - Main',
+        'Paneer Tikka Masala':           'Plate - Main',
+        'Mint Cardamom Limeade':         'Drink',
+        'Mint Cardamon Limeade':         'Drink',
+      };
+      modType = MODTYPE_OVERRIDES[mod] || '';
+    }
+    // Fallback 4: pattern-based inference for new modifiers not yet in Lookup.
+    // Keeps pink sheets complete automatically when new menu items are added.
+    if (!modType) {
+      modType = _inferModType_(mod) || '';
+    }
+    var cleanMod = nameMap[_normMod_(mod)] || mod;
+    if (mod === 'Romaine' && modType === 'Topping') cleanMod = 'Romaine';
+    output.push([cleanMod, parent, itemType, '', grp,
+                 Number(qty) || 0, Number(netAmt) || 0,
+                 cleanMod + itemType, modType]);
+  }
+
+  out.clearContents();
+  out.getRange(1, 1, output.length, output[0].length).setValues(output);
+  out.getRange(1,1,1,output[0].length)
+     .setFontWeight('bold').setBackground('#4B0082').setFontColor('#FFFFFF');
+  out.setFrozenRows(1);
+  showToast_(` Clean Modifiers: ${output.length - 1} rows`);
+}
+
+// 
+// STEP 3  Build Channel Masters
+// 
+function stepBuildChannelMasters() {
+  _buildChannelMaster('IN HOUSE',  SH.MASTER_IN, 'IN-HOUSE', false);
+  _buildChannelMaster('LOYALTY',   SH.MASTER_LO, 'LOYALTY',  false);
+  _buildChannelMaster('DELIVERY',  SH.MASTER_3P, '3PD',      true);
+  showToast_(' Channel masters: IN-HOUSE, LOYALTY, 3PD built');
+}
+
+function _buildChannelMaster(channel, sheetName, revCenter, is3PD) {
+  const ss     = SpreadsheetApp.getActiveSpreadsheet();
+  const clean  = getSheet_(SH.CLEAN_MB);
+  const master = getOrCreateSheet_(sheetName);
+
+  const bikkyRates = {};
+  try {
+    const bName = channel === 'IN HOUSE' ? 'Bikky In store Clean Data '
+                : channel === 'LOYALTY'  ? 'Bikky Delivery + Pickup Clean D' : null;
+    if (bName) {
+      const bws = ss.getSheetByName(bName);
+      if (bws) {
+        const bd = bws.getDataRange().getValues();
+        for (let r = 1; r < bd.length; r++) {
+          const n = String(bd[r][1] || '').trim();
+          if (n) bikkyRates[n] = { ret: bd[r][2], reorder: bd[r][3] };
+        }
+      }
+    }
+  } catch(e) {}
+
+  const cleanData = clean.getDataRange().getValues();
+  const items = {};
+
+  for (let r = 1; r < cleanData.length; r++) {
+    if (String(cleanData[r][0] || '').trim() !== channel) continue;
+    const name     = String(cleanData[r][9] || '').trim();
+    const menuGrp  = String(cleanData[r][1] || '').trim();
+    const rawPrice = Number(cleanData[r][4])  || 0;
+    const qty      = Number(cleanData[r][5])  || 0;
+    const costRaw  = cleanData[r][12];
+    const avgCost  = (costRaw !== '' && costRaw !== null) ? Number(costRaw) : null;
+    if (!name) continue;
+    if (!items[name]) {
+      items[name] = { qty: 0, priceWtSum: 0, priceWtCount: 0, costTotal: 0, hasCost: false, avgCost: null, menuGrp };
+    }
+    const d = items[name];
+    d.qty          += qty;
+    d.priceWtSum   += rawPrice * qty;
+    d.priceWtCount += qty;
+    if (avgCost !== null && !d.hasCost) { d.avgCost = avgCost; d.hasCost = true; }
+    if (!d.menuGrp && menuGrp) d.menuGrp = menuGrp;
+  }
+
+  const itemNames = Object.keys(items).sort();
+  let totalQty = 0;
+  itemNames.forEach(n => { totalQty += items[n].qty; });
+
+  const totalMgn$ = itemNames.reduce(function(s,n){
+    const d=items[n], rp=d.priceWtCount?d.priceWtSum/d.priceWtCount:0;
+    const ap=is3PD?rp*RATE_3PD_PRICE:rp, pc=getPinkCost_(n,channel);
+    let ac=0; if(pc!==null){ac=is3PD?pc*RATE_3PD_COST:pc;}else if(d.hasCost){ac=is3PD?d.avgCost*RATE_3PD_COST:d.avgCost;}
+    return s + (ap - ac) * d.qty;
+  }, 0);
+  const totalNS$ = itemNames.reduce(function(s,n){
+    const d=items[n], rp=d.priceWtCount?d.priceWtSum/d.priceWtCount:0;
+    const ap=is3PD?rp*RATE_3PD_PRICE:rp;
+    return s + ap * d.qty;
+  }, 0);
+  const medM  = totalNS$ ? totalMgn$ / totalNS$ : 0;
+  const medMM = itemNames.length ? (1 / itemNames.length) * 0.7 : 0;
+
+  const hasReturn = (channel === 'IN HOUSE' || channel === 'LOYALTY');
+  const headers = [
+    'Item Name','Avg Price','Avg Cost With Modifiers','Margin',' Quantity',
+    'Total Cost ','Net Sales','Total Margin','COGS%','% Margin',
+    '% Menu Mix','Margin 2','Menu Mix','Menu Engineering - Final ',
+    'Revenue Center','Category','Sub Category','Sls %','Sls % Category','Sls % Sub Category',
+    ...(hasReturn ? ['90 day Item Return Rate','90 day Item Reorder Rate'] : [])
+  ];
+
+  let totalAdjNS = 0;
+  itemNames.forEach(n => {
+    const d  = items[n];
+    const rp = d.priceWtCount ? d.priceWtSum / d.priceWtCount : 0;
+    const ap = is3PD ? rp * RATE_3PD_PRICE : rp;
+    totalAdjNS += ap * d.qty;
+  });
+
+  const catNS = {}, subNS = {};
+  itemNames.forEach(n => {
+    const d   = items[n];
+    const rp  = d.priceWtCount ? d.priceWtSum / d.priceWtCount : 0;
+    const ap  = is3PD ? rp * RATE_3PD_PRICE : rp;
+    const ns  = ap * d.qty;
+    const cat = getMasterCategory_(n, d.menuGrp);
+    const sub = getMasterSubCategory_(n, d.menuGrp);
+    catNS[cat] = (catNS[cat] || 0) + ns;
+    subNS[sub] = (subNS[sub] || 0) + ns;
+  });
+
+  const rows = [headers];
+  itemNames.forEach(n => {
+    const d    = items[n];
+    const rp   = d.priceWtCount ? d.priceWtSum / d.priceWtCount : 0;
+    const ap   = is3PD ? rp * RATE_3PD_PRICE : rp;
+    const pc   = getPinkCost_(n, channel);
+    let ac = 0;
+    if (pc !== null) { ac = is3PD ? pc * RATE_3PD_COST : pc; }
+    else if (d.hasCost) { ac = is3PD ? d.avgCost * RATE_3PD_COST : d.avgCost; }
+    const ns    = ap * d.qty;
+    const tc    = ac * d.qty;
+    const mgn   = ap - ac;
+    const tmgn  = ns - tc;
+    const cogs  = ns  ? tc   / ns  : 0;
+    const mPct  = ap  ? mgn  / ap  : 0;
+    const mmPct = totalQty ? d.qty / totalQty : 0;
+    const sPct  = totalAdjNS ? ns / totalAdjNS : 0;
+    const cat   = getMasterCategory_(n, d.menuGrp);
+    const sub   = getMasterSubCategory_(n, d.menuGrp);
+    const sCat  = catNS[cat] ? ns / catNS[cat] : 0;
+    const sSub  = subNS[sub] ? ns / subNS[sub] : 0;
+    const mH   = mPct  > medM  ? 'High' : 'Low';
+    const mmH  = mmPct > medMM ? 'High' : 'Low';
+    const eng  = _menuEng_(mH, mmH);
+    const bk   = bikkyRates[n] || {};
+    rows.push([
+      n, ap, ac, mgn, d.qty, tc, ns, tmgn, cogs, mPct,
+      mmPct, mH, mmH, eng,
+      revCenter, cat, sub, sPct, sCat, sSub,
+      ...(hasReturn ? [bk.ret ?? '', bk.reorder ?? ''] : [])
+    ]);
+  });
+
+  const totRow = ['GRAND TOTAL','','','',totalQty,'',totalAdjNS,'','','','','','','',
+                  revCenter,'','',1,1,1,...(hasReturn ? ['',''] : [])];
+  rows.push(totRow);
+  // Reference rows — thresholds used for High/Low classification
+  // Written after GRAND TOTAL so analysts can see the cutoffs in the sheet
+  const mgnThreshRow  = Array(headers.length).fill('');
+  mgnThreshRow[0] = 'Avg Margin Threshold (SUM Margin$ / SUM Sales$)';
+  mgnThreshRow[9] = medM;
+  rows.push(mgnThreshRow);
+  const mmThreshRow   = Array(headers.length).fill('');
+  mmThreshRow[0] = 'Menu Mix Threshold (1/n × 0.7)';
+  mmThreshRow[10] = medMM;
+  rows.push(mmThreshRow);
+  master.clearContents();
+  master.getRange(1,1,rows.length,rows[0].length).setValues(rows);
+  _formatMaster_(master, rows.length - 3); // data rows exclude grand total + 2 threshold rows
+  // Format threshold rows
+  const threshBg = '#F3E5F5';
+  master.getRange(rows.length - 1, 1, 2, headers.length).setBackground(threshBg).setFontStyle('italic').setFontSize(8);
+  master.getRange(rows.length - 1, 10).setNumberFormat('0.00%'); // margin threshold
+  master.getRange(rows.length,     11).setNumberFormat('0.000%'); // menu mix threshold
+}
+
+// 
+// STEP 4  Build Blended Master
+// 
+function stepBuildBlendedMaster() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const items = {};
+
+  [SH.MASTER_IN, SH.MASTER_LO, SH.MASTER_3P].forEach(mName => {
+    const ws   = getOrCreateSheet_(mName);
+    const data = ws.getDataRange().getValues();
+    for (let r = 1; r < data.length; r++) {
+      const rawName = String(data[r][0] || '').trim();
+      if (!rawName || rawName === 'Item Name' || rawName === 'GRAND TOTAL' || rawName === 'Item  Name' || rawName.startsWith('Avg Margin Threshold') || rawName.startsWith('Menu Mix Threshold')) continue;
+      // Consolidate "X - In House" into base name "X" so Blended has one row per item
+      const name = rawName.endsWith(' - In House') ? rawName.slice(0, -11) : rawName;
+      const ap  = Number(data[r][1]) || 0;
+      const ac  = Number(data[r][2]) || 0;
+      const qty = Number(data[r][4]) || 0;
+      const ns  = Number(data[r][6]) || 0;
+      const cat = String(data[r][15] || '').trim();
+      const sub = String(data[r][16] || '').trim();
+      if (!items[name]) items[name] = {qty:0,ns:0,priceWt:0,costWt:0,cat,sub};
+      items[name].qty     += qty;
+      items[name].ns      += ns;
+      items[name].priceWt += ap * qty;
+      items[name].costWt  += ac * qty;
+    }
+  });
+
+  const names = Object.keys(items).sort();
+  let totQty = 0, totNS = 0;
+  names.forEach(n => { totQty += items[n].qty; totNS += items[n].ns; });
+
+  const catNS = {}, subNS = {};
+  names.forEach(n => {
+    catNS[items[n].cat] = (catNS[items[n].cat] || 0) + items[n].ns;
+    subNS[items[n].sub] = (subNS[items[n].sub] || 0) + items[n].ns;
+  });
+
+  let blTotMgn$ = 0, blTotNS$ = 0;
+  names.forEach(n => {
+    const d  = items[n];
+    const ap = d.qty ? d.priceWt / d.qty : 0;
+    const ac = d.qty ? d.costWt  / d.qty : 0;
+    blTotMgn$ += (ap - ac) * d.qty;
+    blTotNS$  += ap * d.qty;
+  });
+  const medM  = blTotNS$ ? blTotMgn$ / blTotNS$ : 0;
+  const medMM = names.length ? (1 / names.length) * 0.7 : 0;
+
+  const headers = [
+    'Item  Name','Avg Price','Avg Cost With Modifiers','Margin',' Quantity',
+    'Total Cost ','Net Sales','Total Margin','COGS%','% Margin',
+    '% Menu Mix','Margin 2','Menu Mix','Menu Engineering - Final ',
+    'Category','Sub Category','Sls %','Sls % Category','Sls % Sub Category'
+  ];
+  const rows = [headers];
+
+  names.forEach(n => {
+    const d    = items[n];
+    const ap   = d.qty ? d.priceWt / d.qty : 0;
+    const ac   = d.qty ? d.costWt  / d.qty : 0;
+    const mgn  = ap - ac;
+    const tc   = ac * d.qty;
+    const tmgn = d.ns - tc;
+    const cogs = d.ns  ? tc   / d.ns  : 0;
+    const mPct = ap    ? mgn  / ap    : 0;
+    const mmPct= totQty? d.qty/ totQty: 0;
+    const sPct = totNS ? d.ns / totNS : 0;
+    const sCat = catNS[d.cat] ? d.ns / catNS[d.cat] : 0;
+    const sSub = subNS[d.sub] ? d.ns / subNS[d.sub] : 0;
+    const mH   = mPct  > medM  ? 'High' : 'Low';
+    const mmH  = mmPct > medMM ? 'High' : 'Low';
+    const eng  = _menuEng_(mH, mmH);
+    rows.push([n, ap, ac, mgn, d.qty, tc, d.ns, tmgn, cogs, mPct,
+               mmPct, mH, mmH, eng, d.cat, d.sub, sPct, sCat, sSub]);
+  });
+
+  // Reference threshold rows
+  const blMgnRow = Array(headers.length).fill('');
+  blMgnRow[0]  = 'Avg Margin Threshold (SUM Margin$ / SUM Sales$)';
+  blMgnRow[9]  = medM;
+  rows.push(blMgnRow);
+  const blMMRow  = Array(headers.length).fill('');
+  blMMRow[0]   = 'Menu Mix Threshold (1/n × 0.7)';
+  blMMRow[10]  = medMM;
+  rows.push(blMMRow);
+  const bl = getOrCreateSheet_(SH.MASTER_BL);
+  bl.clearContents();
+  bl.getRange(1,1,rows.length,rows[0].length).setValues(rows);
+  _formatMaster_(bl, rows.length - 3);
+  const blThreshBg = '#F3E5F5';
+  bl.getRange(rows.length - 1, 1, 2, headers.length).setBackground(blThreshBg).setFontStyle('italic').setFontSize(8);
+  bl.getRange(rows.length - 1, 10).setNumberFormat('0.00%');
+  bl.getRange(rows.length,     11).setNumberFormat('0.000%');
+  showToast_(` Blended Master: ${rows.length - 3} items`);
+}
+
+// 
+// STEP 5  Build Overall Master
+// 
+function stepBuildOverallMaster() {
+  const channelMasters = [
+    { name: SH.MASTER_IN, channel: 'IN-HOUSE' },
+    { name: SH.MASTER_LO, channel: 'LOYALTY'  },
+    { name: SH.MASTER_3P, channel: '3PD'      },
+  ];
+
+  const allRows = [];
+  channelMasters.forEach(({ name: mName, channel }) => {
+    const ws   = getOrCreateSheet_(mName);
+    const data = ws.getDataRange().getValues();
+    for (let r = 1; r < data.length; r++) {
+      const item = String(data[r][0] || '').trim();
+      if (!item || item === 'Item Name' || item === 'GRAND TOTAL' || item.startsWith('Avg Margin Threshold') || item.startsWith('Menu Mix Threshold')) continue;
+      allRows.push({
+        item: data[r][0], price: data[r][1], cost: data[r][2], margin: data[r][3],
+        qty: data[r][4], tc: data[r][5], ns: data[r][6], totMgn: data[r][7],
+        cogs: data[r][8], mPct: data[r][9], mHigh: data[r][11], mmHigh: data[r][12],
+        eng: data[r][13], channel, cat: data[r][15], sub: data[r][16],
+      });
+    }
+  });
+
+  const totalQtyAll = allRows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+  const totalNSAll  = allRows.reduce((s, r) => s + (Number(r.ns)  || 0), 0);
+  const catNSAll = {};
+  allRows.forEach(r => { catNSAll[r.cat] = (catNSAll[r.cat] || 0) + (Number(r.ns) || 0); });
+
+  const headers = [
+    'Item Name','Avg Price','Avg Cost With Modifiers','Margin',' Quantity',
+    'Total Cost ','Net Sales','Total Margin','COGS%','% Margin',
+    '% Menu Mix','Margin 2','Menu Mix','Menu Engineering - Final',
+    'Menu','Category','Sub Category','Sls %','Sls % Category'
+  ];
+  const rows = [headers];
+
+  allRows.forEach(r => {
+    const qty   = Number(r.qty) || 0;
+    const ns    = Number(r.ns)  || 0;
+    const mmPct = totalQtyAll ? qty / totalQtyAll : 0;
+    const slsPct= totalNSAll  ? ns  / totalNSAll  : 0;
+    const slsCat= catNSAll[r.cat] ? ns / catNSAll[r.cat] : 0;
+    rows.push([
+      r.item, r.price, r.cost, r.margin, r.qty,
+      r.tc, r.ns, r.totMgn, r.cogs, r.mPct,
+      mmPct, r.mHigh, r.mmHigh, r.eng,
+      r.channel, r.cat, r.sub, slsPct, slsCat
+    ]);
+  });
+
+  const ov = getOrCreateSheet_(SH.MASTER_OV);
+  ov.clearContents();
+  ov.getRange(1,1,rows.length,rows[0].length).setValues(rows);
+  _formatMaster_(ov, rows.length - 1);
+  showToast_(` Overall Master: ${rows.length - 1} item-channel rows`);
+}
+
+// 
+// VALIDATION
+// 
+function validateRawData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const issues = [];
+  [[SH.RAW_MB,'Raw Menu Breakdown'],[SH.RAW_MOD,'Raw Modifiers'],
+   [SH.MOD_COSTS,'Modifier costs'],[SH.ITEM_COST,'Item Cost Lookup'],
+   [SH.LOOKUP_MB,'Lookup_Menu Breakdown']].forEach(([name, label]) => {
+    const sh = ss.getSheetByName(name);
+    issues.push((!sh || sh.getLastRow() < 2)
+      ? `  ${label}: MISSING or EMPTY`
+      : `  ${label}: ${sh.getLastRow()-1} rows`);
+  });
+  const raw = ss.getSheetByName(SH.RAW_MB);
+  if (raw) {
+    const menus = new Set(raw.getDataRange().getValues().slice(1).map(r=>r[0]).filter(Boolean));
+    ['DELIVERY','FOOD - IN HOUSE','APP'].forEach(ch => {
+      if (!menus.has(ch)) issues.push(`   Channel "${ch}" not in Raw Menu Breakdown`);
+    });
+  }
+  ui.alert(' Validation', issues.join('\n'), ui.ButtonSet.OK);
+}
+
+function checkSheetNames() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const ui  = SpreadsheetApp.getUi();
+  const all = ss.getSheets().map(s => s.getName());
+  const lines = ['Checking required sheet names:\n'];
+  Object.values(SH).forEach(name => {
+    if (all.includes(name)) { lines.push(`  "${name}"`); }
+    else {
+      const close = all.filter(s => s.toLowerCase().includes(name.toLowerCase().slice(0,12)) || name.toLowerCase().includes(s.toLowerCase().slice(0,12)));
+      lines.push(`  MISSING: "${name}"`);
+      if (close.length) lines.push(`        Close match: "${close[0]}"`);
+    }
+  });
+  lines.push(`\n\nAll ${all.length} tabs:\n   ${all.join('\n   ')}`);
+  ui.alert(' Sheet Names', lines.join('\n'), ui.ButtonSet.OK);
+}
+
+function getSheet_(name) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(name);
+  if (!sh) {
+    const shTrim = ss.getSheets().find(s => s.getName().trim() === name.trim());
+    if (shTrim) return shTrim;
+    const all   = ss.getSheets().map(s => s.getName());
+    const close = all.filter(s => s.toLowerCase().includes(name.toLowerCase().slice(0,12)) || name.toLowerCase().includes(s.toLowerCase().slice(0,12)));
+    throw new Error(`Sheet not found: "${name}"\n\n` + (close.length ? `Did you mean:\n   ${close.join('\n   ')}` : `All tabs:\n   ${all.join('\n   ')}`));
+  }
+  return sh;
+}
+
+function getOrCreateSheet_(name) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh   = ss.getSheetByName(name);
+  if (!sh) { sh = ss.insertSheet(name); SpreadsheetApp.flush(); }
+  return sh;
+}
+
+function _menuEng_(mHL, mmHL) {
+  if (mHL === 'High' && mmHL === 'High') return 'Star';
+  if (mHL === 'High' && mmHL === 'Low')  return 'Puzzle';
+  if (mHL === 'Low'  && mmHL === 'High') return 'Plow Horse';
+  return 'Dog';
+}
+
+function _median_(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a,b) => a-b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
+}
+
+function _formatMaster_(ws, dataRows) {
+  if (dataRows < 1) return;
+  const pct = '0.00%', dlr = '$#,##0.00', num = '#,##0';
+  [[2,dlr],[3,dlr],[4,dlr],[5,num],[6,dlr],[7,dlr],[8,dlr],
+   [9,pct],[10,pct],[11,pct],[18,pct],[19,pct],[20,pct]
+  ].forEach(([c,fmt]) => {
+    try { ws.getRange(2,c,dataRows,1).setNumberFormat(fmt); } catch(e) {}
+  });
+  ws.getRange(1,1,1,ws.getLastColumn())
+    .setFontWeight('bold').setBackground('#4B0082').setFontColor('#FFFFFF');
+  ws.setFrozenRows(1);
+}
+
+function showToast_(msg) {
+  SpreadsheetApp.getActiveSpreadsheet().toast(msg, ' PMIX Pipeline', 300);
+}
+
+
+// 
+// STEP 6  Build Pink Item Cost Sheets
+// 
+function _runBuildPinkSheets_() {
+  const costMap = _buildModifierCostMap_();
+  _buildAllPinkSheets_(costMap);
+}
+
+function stepBuildPinkSheets() {
+  const ui = SpreadsheetApp.getUi();
+  const resp = ui.alert(' Build Pink Cost Sheets',
+    'This will create/rebuild all item cost calculation sheets.\n\n' +
+    'These are rebuilt automatically as part of the full pipeline.\nContinue?',
+    ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+  try {
+    showToast_('Building modifier cost lookup');
+    const costMap = _buildModifierCostMap_();
+    showToast_(`Loaded ${Object.keys(costMap).length} modifier costs. Building sheets`);
+    const count   = _buildAllPinkSheets_(costMap);
+    SpreadsheetApp.getUi().alert(' Done', `Built ${count} item cost sheets.`, ui.ButtonSet.OK);
+  } catch(e) {
+    ui.alert(' Error', e.message + '\n\n' + e.stack, ui.ButtonSet.OK);
+  }
+}
+
+function _buildModifierCostMap_() {
+  const mcData  = getSheet_(SH.MOD_COSTS).getDataRange().getValues();
+  const iclData = getSheet_(SH.ITEM_COST).getDataRange().getValues();
+  const costMap = {};
+
+  for (let r = 1; r < mcData.length; r++) {
+    const recipeName = String(mcData[r][0] || '').trim();
+    if (!recipeName.startsWith('MI ')) continue;
+    const cleanName  = String(mcData[r][1] || '').trim();
+    const cost       = mcData[r][25];
+    if (!cleanName || typeof cost !== 'number' || cost <= 0) continue;
+    const key = _normMod_(cleanName);
+    if (!(key in costMap) || cost > costMap[key]) costMap[key] = cost;
+  }
+
+  for (let r = 1; r < iclData.length; r++) {
+    const cleanName = String(iclData[r][2] || '').trim();
+    const raw       = String(iclData[r][6] || '').trim();
+    if (!cleanName || !raw) continue;
+    const cost = parseFloat(raw.replace('$', ''));
+    if (isNaN(cost) || cost <= 0) continue;
+    const key = _normMod_(cleanName);
+    if (!(key in costMap)) costMap[key] = cost;
+  }
+
+  return costMap;
+}
+
+function _normMod_(s) {
+  return s.toLowerCase()
+    .replace(/[\u00e0-\u00e5]/g, 'a')
+    .replace(/[\u00e8-\u00eb]/g, 'e')
+    .replace(/[\u00ec-\u00ef]/g, 'i')
+    .replace(/[\u00f2-\u00f6]/g, 'o')
+    .replace(/[\u00f9-\u00fc]/g, 'u')
+    .replace(/[\u00e7]/g, 'c')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// FIX 1: Sauce name aliases + all existing fallbacks
+function _getModCost_(name, costMap, channel) {
+  if (!name) return null;
+  var lower = name.toLowerCase();
+  if (lower.startsWith('skip') || lower === 'grand total' ||
+      lower.startsWith('no ') || lower === '') return 0;
+
+  var n = _normMod_(name);
+
+  // 1. Direct lookup
+  if (n in costMap) return costMap[n];
+
+  // 1b. FIX 1: Sauce display name aliases: Toast name -> R365 clean name
+  const SAUCE_ALIASES = {
+    'tomato garlic (butter masala)': 'tomato garlic sauce',
+    'tikka masala':                  'tikka masala sauce',
+    'tamarind chili (spicy)':        'tamarind chili sauce',
+    'peanut sesame':                 'peanut sesame sauce',
+    'coconut ginger':                'coconut ginger sauce',
+  };
+  if (n in SAUCE_ALIASES) {
+    var aliasKey = _normMod_(SAUCE_ALIASES[n]);
+    if (aliasKey in costMap) return costMap[aliasKey];
+  }
+
+  // 2. "Extra X" -> same cost as "X"
+  if (n.startsWith('extra ')) {
+    var base2 = n.slice(6);
+    if (base2 in costMap) return costMap[base2];
+  }
+
+  // 3. "1/2 X" -> half of "X" cost
+  if (n.startsWith('1/2 ')) {
+    var base3 = n.slice(4).replace(/^and /, '');
+    if (base3 in costMap) return costMap[base3] / 2;
+  }
+
+  // 4. "X - Side" -> same cost as base "X"
+  if (n.endsWith(' - side')) {
+    var base4 = n.slice(0, n.length - 7);
+    if (base4 in costMap) return costMap[base4];
+  }
+
+  // 5a. 'Tandoori Paneer' fallback
+  if (n === 'tandoori paneer') {
+    var orgKey = _normMod_('Organic Tandoori Paneer');
+    if (orgKey in costMap) return costMap[orgKey];
+  }
+
+  // 5. 'Romaine' topping fallback
+  if (n === 'romaine') {
+    var shreddedKey = _normMod_('Shredded Romaine');
+    if (shreddedKey in costMap) return costMap[shreddedKey];
+  }
+
+  // 6. Spicy Mango Chutney hardcoded
+  if (n === 'spicy mango chutney' || n === 'spicy mango chutney - side') {
+    return 0.1777;
+  }
+
+  return null;
+}
+
+function _getPinkSheetItems_() {
+  const ITEMS = [
+    { name: 'BYO Grain Bowl',            rawOn: 'Grain Bowl',                        rawIH: 'Grain Bowl - In House',                  typeOn: 'BYO Grain Bowl - Online',             typeIH: 'BYO Grain Bowl - In House' },
+    { name: 'BYO Salad Bowl',            rawOn: 'Salad Bowl',                        rawIH: 'Salad Bowl - In House',                  typeOn: 'BYO Salad Bowl - Online',             typeIH: 'BYO Salad Bowl - In House' },
+    { name: 'BYO Greens + Grains Bowl',  rawOn: 'Greens + Grains Bowl',              rawIH: 'Greens + Grains Bowl - In House',        typeOn: 'BYO Greens and Grains Bowl - Online', typeIH: 'BYO Greens and Grains Bowl - In House' },
+    { name: 'BYO Indian Burrito',        rawOn: 'BYO Indian Burrito',                rawIH: 'Burrito - In House',                     typeOn: 'BYO Burrito - Online',                typeIH: 'BYO Burrito - In House' },
+    { name: 'Chicken Tikka Bowl',        rawOn: 'Chicken Tikka Bowl',                rawIH: 'Chicken Tikka Bowl - In House',          typeOn: 'Set Bowl - Online',                   typeIH: 'Set Bowl - In House' },
+    { name: 'Spicy Chili Chicken Bowl',  rawOn: 'Spicy Chili Chicken Bowl',          rawIH: 'Spicy Chili Chicken Bowl - In House',    typeOn: 'Set Bowl - Online',                   typeIH: 'Set Bowl - In House' },
+    { name: 'Paneer Tikka Bowl',         rawOn: 'Paneer Tikka Bowl',                 rawIH: 'Paneer Tikka Bowl - In House',           typeOn: 'Set Bowl - Online',                   typeIH: 'Set Bowl - In House' },
+    { name: 'Lamb Kebab Bowl',           rawOn: 'Lamb Kebab Bowl',                   rawIH: 'Lamb Kebab Bowl - In House',             typeOn: 'Set Bowl - Online',                   typeIH: 'Set Bowl - In House' },
+    { name: 'Chicken Tikka + Avocado Salad', rawOn: 'Chicken Tikka + Avocado Salad', rawIH: 'Chicken Tikka + Avocado Salad - In House', typeOn: 'Set Bowl - Online',               typeIH: 'Set Bowl - In House' },
+    { name: 'Spiced Cauli + Quinoa Bowl',rawOn: 'Spiced Cauli + Quinoa Bowl', rawOnAlt: 'Cauliflower + Quinoa Bowl', rawIH: 'Cauliflower + Quinoa - In House', typeOn: 'Set Bowl - Online', typeIH: 'Set Bowl - In House' },
+    { name: 'Harvest Chicken Bowl',      rawOn: null,                                rawIH: 'Harvest Chicken Bowl - In House',        typeOn: null,                                  typeIH: 'BYO Greens and Grains Bowl - In House' },
+    { name: 'Butter Chicken',            rawOn: 'Butter Chicken',                    rawIH: 'Butter Chicken - In House',              typeOn: 'Set Plate - Online',                  typeIH: 'Set Plate - In House' },
+    { name: 'Chicken Tikka Masala',      rawOn: 'Chicken Tikka Masala',              rawIH: 'Chicken Tikka Masala - In House',        typeOn: 'Set Plate - Online',                  typeIH: 'Set Plate - In House' },
+    { name: 'Paneer Tikka Masala',       rawOn: 'Paneer Tikka Masala',               rawIH: null,                                     typeOn: 'Set Plate - Online',                  typeIH: null },
+    { name: 'Aloo Gobhi',                rawOn: 'Aloo Gobhi',                        rawIH: 'Aloo Gobhi - In House',                  typeOn: 'Set Plate - Online',                  typeIH: 'Set Plate - In House' },
+    { name: 'Saag Paneer',               rawOn: 'Saag Paneer',                       rawIH: 'Saag Paneer - In House',                 typeOn: 'Set Plate - Online',                  typeIH: 'Set Plate - In House' },
+    { name: 'Paneer Butter Masala',      rawOn: 'Paneer Butter Masala',              rawIH: 'Paneer Butter Masala - In House',        typeOn: 'Set Plate - Online',                  typeIH: 'Set Plate - In House' },
+    { name: 'Lamb Kofta Korma',          rawOn: 'Lamb Kofta Korma',                  rawIH: null,                                     typeOn: 'Set Plate - Online',                  typeIH: null },
+    { name: 'Chicken Curry',             rawOn: 'Chicken Curry',                     rawIH: null,                                     typeOn: 'Set Plate - Online',                  typeIH: null },
+    { name: 'Saag Chole',                rawOn: 'Saag Chole',                        rawIH: 'Saag Chole - In House',                  typeOn: 'Set Plate - Online',                  typeIH: 'Set Plate - In House' },
+    { name: 'Coconut Veggie Curry',      rawOn: 'Coconut Veggie Curry',              rawIH: null,                                     typeOn: 'Set Plate - Online',                  typeIH: null },
+    { name: 'Pick 2 Combo Plate',        rawOn: 'Pick 2 Combo Plate',                rawIH: 'Pick 2 Combo Plate - In House',          typeOn: 'Set Plate - Online',                  typeIH: 'Set Plate - In House' },
+    { name: 'Tandoori Paneer Burrito',   rawOn: 'Tandoori Paneer Burrito',           rawIH: 'Tandoori Paneer Burrito - In House',     typeOn: 'Set Burrito - Online',                typeIH: 'Set Burrito - In House' },
+    { name: 'Butter Chicken Burrito',    rawOn: 'Butter Chicken Burrito',            rawIH: 'Butter Chicken Burrito - In House',      typeOn: 'Set Burrito - Online',                typeIH: 'Set Burrito - In House' },
+    { name: 'Kids Meal',                 rawOn: 'Kids Meal',                         rawIH: 'Kids BYO - In House',                    typeOn: 'Kids Meal - Online',                  typeIH: 'Kids Meal - In House' },
+    { name: 'Homemade Juice',            rawOn: 'Homemade Juice',                    rawIH: 'Homemade Juice - In House',              typeOn: 'Drink',                               typeIH: 'Drink' },
+    { name: 'Handcrafted Juice for a Group - 1/2 Gallon', rawOn: 'Handcrafted Juice for a Group - 1/2 Gallon', rawIH: null,                typeOn: 'Drink',                               typeIH: null },
+    { name: 'Side of Main',              rawOn: 'Side of Main',                      rawIH: null,                                     typeOn: 'Side',                                typeIH: null },
+    { name: 'Side of Veggie',            rawOn: 'Side of Veggie',                    rawIH: null,                                     typeOn: 'Side',                                typeIH: null },
+    { name: 'Side of Grain',             rawOn: 'Side of Grain',                     rawIH: null,                                     typeOn: 'Side',                                typeIH: null },
+    { name: 'Side of Sauce',             rawOn: 'Side of Sauce',                     rawIH: null,                                     typeOn: 'Side',                                typeIH: null },
+  ];
+  return ITEMS;
+}
+
+function _buildAllPinkSheets_(costMap) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  var cmSheetCheck = ss.getSheetByName(SH.CLEAN_MOD);
+  if (!cmSheetCheck) {
+    SpreadsheetApp.getUi().alert('ERROR: Clean Modifiers sheet not found.\nRun Step 2 (Clean Modifiers) before building pink sheets.');
+    return 0;
+  }
+  const cmSheet  = cmSheetCheck;
+  const iclSheet = getSheet_(SH.ITEM_COST);
+  const cmData   = cmSheet.getDataRange().getValues();
+
+  const rawToClean = {};
+  _getPinkSheetItems_().forEach(function(item) {
+    if (item.rawOn) rawToClean[item.rawOn] = item.name;
+    if (item.rawOnAlt) rawToClean[item.rawOnAlt] = item.name;
+    if (item.name === 'Spiced Cauli + Quinoa Bowl') {
+      rawToClean['Spiced Cauliflower + Quinoa Bowl'] = item.name;
+    }
+    if (item.rawIH) {
+      const ihKey = (item.rawIH !== item.rawOn) ? item.rawIH : item.name;
+      rawToClean[item.rawIH] = ihKey;
+    }
+  });
+
+  // ── FIX 2 (CORRECT): Filter catering modifiers by MODIFIER NAME, not item type.
+  // Catering modifiers appear under normal parent items (e.g. Chicken Tikka Bowl)
+  // with normal item types (Set Bowl - Online). The only reliable signal is the
+  // modifier name itself containing "Catering" or catering-related keywords.
+  function isCateringModifier(modName) {
+    var lower = modName.toLowerCase();
+    return lower.indexOf('catering') !== -1 ||
+           lower.indexOf('zerocater') !== -1 ||
+           lower.indexOf('sharebite') !== -1 ||
+           lower.indexOf('ezcater') !== -1 ||
+           lower.indexOf('hungry') !== -1 ||
+           /\d+\s*(chai cookie basket|samosa tray|naan basket)/i.test(modName) ||
+           /(plain|garlic|combo) naan - (large|small)/i.test(modName) ||
+           /samosa tray/i.test(modName);
+  }
+
+  const modData = {};
+  for (let r = 1; r < cmData.length; r++) {
+    const mod         = String(cmData[r][0] || '').trim();
+    const rawParent   = String(cmData[r][1] || '').trim();
+    const itype       = String(cmData[r][2] || '').trim();
+    const qty         = Number(cmData[r][5]) || 0;
+    const modType     = String(cmData[r][8] || '').trim();
+    if (!mod || !rawParent || !itype || qty === 0) continue;
+    if (!modType || modType === 'NA') continue;
+
+    // Skip catering modifiers by name
+    if (isCateringModifier(mod)) continue;
+
+    // Also skip by item type for catering parent items
+    if (/catering/i.test(itype) || /zerocater/i.test(itype) || /sharebite/i.test(itype)) continue;
+
+    const cleanParent = rawToClean[rawParent] || rawParent;
+    if (!modData[itype])                       modData[itype] = {};
+    if (!modData[itype][cleanParent])          modData[itype][cleanParent] = {};
+    if (!modData[itype][cleanParent][modType]) modData[itype][cleanParent][modType] = {};
+    modData[itype][cleanParent][modType][mod] = (modData[itype][cleanParent][modType][mod] || 0) + qty;
+  }
+
+  const iclData = iclSheet.getDataRange().getValues();
+  const baseCosts = {};
+  for (let r = 1; r < iclData.length; r++) {
+    const menuRaw  = String(iclData[r][0] || '').trim();
+    const cleanNm  = String(iclData[r][3] || '').trim();
+    const costRaw  = iclData[r][6];
+    const cost     = costRaw ? parseFloat(String(costRaw).replace('$','')) : null;
+    const channel  = MENU_CHANNEL_MAP[menuRaw] || menuRaw;
+    if (cleanNm && cost !== null && !isNaN(cost)) {
+      baseCosts[`${channel}||${cleanNm}`] = cost;
+    }
+  }
+
+  const itemQtyMap = {};
+  const cmbSheet2 = ss.getSheetByName(SH.CLEAN_MB);
+  if (cmbSheet2) {
+    const cmbRows = cmbSheet2.getDataRange().getValues();
+    for (let r = 1; r < cmbRows.length; r++) {
+      const ch    = String(cmbRows[r][0] || '').trim();
+      const clean = String(cmbRows[r][9] || '').trim();
+      const qty   = Number(cmbRows[r][5]) || 0;
+      if (ch && clean && qty > 0) {
+        const k = ch + '||' + clean;
+        itemQtyMap[k] = (itemQtyMap[k] || 0) + qty;
+        // Also register under the base name (strip ' - In House' suffix) so that
+        // _writePinkSheet_ can find the qty using item.name regardless of how
+        // Toast exports the in-house variant name in Clean Menu Breakdown.
+        if (ch === 'IN HOUSE' && clean.endsWith(' - In House')) {
+          const baseName = clean.slice(0, -11); // remove trailing ' - In House'
+          const kBase = ch + '||' + baseName;
+          itemQtyMap[kBase] = (itemQtyMap[kBase] || 0) + qty;
+        }
+      }
+    }
+  }
+
+  const items = _getPinkSheetItems_();
+  let count   = 0;
+
+  items.forEach(item => {
+    if (item.typeOn) {
+      const shName = item.name.length > 31 ? item.name.slice(0,31) : item.name;
+      const onQty  = (itemQtyMap['DELIVERY||' + item.name] || 0)
+                   + (itemQtyMap['LOYALTY||'  + item.name] || 0);
+      _writePinkSheet_(ss, shName, item, 'ONLINE', costMap, modData, baseCosts, onQty);
+      count++;
+    }
+    if (item.typeIH) {
+      const shName = (item.name + '(in house)').length > 31
+        ? (item.name + '(in house)').slice(0,31)
+        : item.name + '(in house)';
+      const ihQty = itemQtyMap['IN HOUSE||' + item.name] || 0;
+      _writePinkSheet_(ss, shName, item, 'IN HOUSE', costMap, modData, baseCosts, ihQty);
+      count++;
+    }
+  });
+
+  return count;
+}
+
+function _writePinkSheet_(ss, sheetName, item, channel, costMap, modData, baseCosts, cmbQty) {
+  let ws = ss.getSheetByName(sheetName);
+  if (ws) { ws.clearContents(); ws.clearFormats(); }
+  else    { ws = ss.insertSheet(sheetName); }
+
+  const channelLabel = (channel === 'IN HOUSE') ? 'IN HOUSE' : 'THANX + 3PD';
+  const itemType     = (channel === 'IN HOUSE') ? item.typeIH : item.typeOn;
+  const NUM_COLS     = 13;
+
+  const modDataKey = (channel === 'IN HOUSE' && item.rawIH && item.rawIH !== item.rawOn)
+    ? item.rawIH : item.name;
+  const _raw = (modData[itemType] && modData[itemType][modDataKey])
+    ? modData[itemType][modDataKey]
+    : ((modData[itemType] && modData[itemType][item.name]) ? modData[itemType][item.name] : {});
+  const sections = Object.assign({}, _raw);
+  Object.keys(sections).forEach(function(k) { sections[k] = Object.assign({}, _raw[k]); });
+
+  const halfBase = sections['1/2 Base'] || {};
+  const halfMain = sections['1/2 Main'] || {};
+
+  const mainSec     = sections['Main'] || sections['Plate - Main'] || sections['Kids - Main'] || {};
+  const baseSec     = sections['Base'] || {};
+  const modifierQty = Object.values(mainSec).reduce((s,v)=>s+v,0)
+                    || Object.values(baseSec).reduce((s,v)=>s+v,0) || 1;
+  const itemQty     = (cmbQty && cmbQty > 0) ? cmbQty : modifierQty;
+
+  const chanKey  = (channel === 'IN HOUSE') ? 'IN HOUSE' : 'DELIVERY';
+  const baseCost = baseCosts[`${chanKey}||${item.name}`]
+                || baseCosts[`LOYALTY||${item.name}`] || 0;
+
+  if (sections['Side - Sauce']) {
+    if (!sections['Sauce']) sections['Sauce'] = {};
+    Object.entries(sections['Side - Sauce']).forEach(([m,q]) => {
+      sections['Sauce'][m] = (sections['Sauce'][m]||0)+q;
+    });
+    delete sections['Side - Sauce'];
+  }
+  if (sections['Side - Chutney and Dressing']) {
+    if (!sections['Chutney and Dressing']) sections['Chutney and Dressing'] = {};
+    Object.entries(sections['Side - Chutney and Dressing']).forEach(([m,q]) => {
+      sections['Chutney and Dressing'][m] = (sections['Chutney and Dressing'][m]||0)+q;
+    });
+    delete sections['Side - Chutney and Dressing'];
+  }
+
+  const mealMods = {};
+  ['Side','Drink','Sweet'].forEach(t => {
+    if (sections[t]) Object.entries(sections[t]).forEach(([m,q]) => {
+      mealMods[m] = (mealMods[m]||0)+q;
+    });
+  });
+
+  // Determine which base pattern applies — confirmed against manual PMIX workbook:
+  //
+  // Pattern 1 — Only 1/2 Base modifiers, no full base (e.g. BYO Greens+Grains Bowl):
+  //   sections['Base'] is empty/absent. All half-bases go directly into col A as the
+  //   main table, each costed at its own unit price. No sub-table.
+  //
+  // Pattern 2 — Full bases + 1/2 and 1/2 Base (e.g. BYO Grain Bowl, BYO Salad Bowl):
+  //   sections['Base'] has real full-base mods. 1/2 Base breakdown goes into col H
+  //   sub-table for display context. 1/2 Base does NOT contribute to totalModCost —
+  //   the weighted avg cost of '1/2 and 1/2 Base' in the Base section already covers it.
+  //
+  // Pattern 3 — Only Skip Base (e.g. Chicken Tikka + Avocado Salad):
+  //   sections['Base'] has only Skip Base (cost 0). 1/2 Base breakdown goes into col H
+  //   sub-table for display. Base section contributes 0 to totalModCost.
+  //
+  const baseHasRealMods = sections['Base'] &&
+    Object.keys(sections['Base']).some(function(m) { return !m.toLowerCase().startsWith('skip'); });
+  // Pattern 1 only when sections['Base'] is truly absent — not when Skip Base exists.
+  // Skip Base is a real modifier that must render in col A (cost 0) for Pattern 3.
+  const baseIsEmpty = !sections['Base'] || Object.keys(sections['Base']).length === 0;
+
+  // Pattern 1: render 1/2 Base as primary main table (no sub-table, cost included directly)
+  // Pattern 2/3: render Base as primary table with 1/2 Base in col H sub-table (display only)
+  const useHalfBaseAsPrimary = baseIsEmpty && sections['1/2 Base'] &&
+    Object.keys(sections['1/2 Base']).length > 0;
+
+  const SECTION_ORDER = [
+    useHalfBaseAsPrimary
+      ? { key:'1/2 Base', label:'BASES', sub: {} }           // Pattern 1: 1/2 Base IS the base
+      : { key:'Base',     label:'BASES', sub: halfBase },     // Pattern 2/3: Base + sub-table
+    { key:'Main',        label:'MAIN',        sub: halfMain },
+    { key:'Plate - Main',label:'MAIN',        sub: halfMain },
+    { key:'Extra Main',  label:'EXTRA MAIN',  sub: {} },
+    { key:'Sauce',       label:'SAUCE',       sub: {} },
+    { key:'Veggie',      label:'VEGGIES',     sub: {} },
+    { key:'Extra Veggie',label:'EXTRA VEGGIES',sub: {} },
+    { key:'Topping',     label:'TOPPINGS',    sub: {} },
+    { key:'Chutney and Dressing', label:'CHUTNEY AND DRESSINGS', sub: {} },
+    { key:'Kids - Main', label:'MAINS',       sub: {} },
+    { key:'__MEAL__',    label:'MAKE IT MEAL',sub: {} },
+  ];
+
+  const EXCLUDE_MOD_COST_KEYS = {
+    'Plate - Main': true,
+    // In Pattern 2/3 the '1/2 Base' key is never in SECTION_ORDER so this is a safety net only.
+    // In Pattern 1 '1/2 Base' IS the primary section and should contribute to totalModCost.
+    '1/2 Base': !useHalfBaseAsPrimary,
+    '1/2 Main': true,  // sub-table display only — cost already in Main via weighted avg
+  };
+
+  const toRender = [];
+  SECTION_ORDER.forEach(s => {
+    if (s.key === '__MEAL__') {
+      if (Object.keys(mealMods).length) toRender.push({...s, mods: mealMods, excludeCost: false});
+    } else if (sections[s.key]) {
+      toRender.push({...s, mods: sections[s.key], excludeCost: !!EXCLUDE_MOD_COST_KEYS[s.key]});
+    }
+  });
+
+  const rows  = [];
+  const style = [];
+
+  const push = (cells, bg, bold) => {
+    while (cells.length < NUM_COLS) cells.push('');
+    rows.push(cells.slice(0, NUM_COLS));
+    style.push({ bg: bg||null, bold: !!bold });
+  };
+  const spacer = () => push(Array(NUM_COLS).fill(''), null, false);
+
+  const subWeightedAvg = (subItems) => {
+    const entries = Object.entries(subItems);
+    const total   = entries.reduce((s,[,q])=>s+q, 0);
+    if (total === 0) return 0;
+    let costSum = 0;
+    entries.forEach(([m,q]) => { costSum += (_getModCost_(m, costMap)||0) * q; });
+    return costSum / total;
+  };
+
+  let totalModCost = 0;
+
+  toRender.forEach(({key, label, sub, mods, excludeCost}) => {
+    const secTitle  = `${item.name.toUpperCase()} - ${label} - ${channelLabel}`;
+    const qtyLabel  = `BOWLS - ${label} (${channelLabel}) BY QUANTITY`;
+    const subArr    = Object.entries(sub).sort((a,b)=>b[1]-a[1]);
+    const subTotal  = subArr.reduce((s,[,q])=>s+q, 0);
+    const hasSubTab = subArr.length > 0;
+
+    spacer();
+    const titleRow = Array(NUM_COLS).fill(''); titleRow[0] = secTitle;
+    push(titleRow, '#FFC7CE', true);
+    const lblRow = Array(NUM_COLS).fill(''); lblRow[0] = qtyLabel; lblRow[3] = qtyLabel;
+    push(lblRow, null, false);
+    const ncRow = Array(NUM_COLS).fill(''); ncRow[0] = 'No Catering'; ncRow[3] = 'No Catering';
+    if (hasSubTab) { ncRow[7] = 'modifier'; ncRow[8] = 'SUM of Qty'; ncRow[10] = 'Cost'; ncRow[11] = '%'; }
+    push(ncRow, null, false);
+    const hdrRow = Array(NUM_COLS).fill('');
+    hdrRow[0] = 'modifier'; hdrRow[1] = 'SUM of Qty'; hdrRow[3] = 'Cost';
+    if (hasSubTab && subArr.length > 0) {
+      const [sm0, sq0] = subArr[0]; const sc0 = _getModCost_(sm0, costMap) || 0;
+      hdrRow[7] = sm0; hdrRow[8] = sq0; hdrRow[10] = sc0;
+      hdrRow[11] = subTotal > 0 ? sq0/subTotal : '';
+      hdrRow[12] = subTotal > 0 ? (sq0/subTotal)*sc0 : '';
+    }
+    push(hdrRow, '#C00000', true);
+
+    const modArr = Object.entries(mods).sort((a,b)=>b[1]-a[1]);
+    let sectionCostTotal = 0;
+    let sectionQty = 0;
+    const totalModQty = Object.entries(mods).filter(([m]) => !m.toLowerCase().startsWith('skip')).reduce((s,[,q]) => s+q, 0);
+
+    modArr.forEach(([modName, qty], idx) => {
+      const lower = modName.toLowerCase();
+      const isSkip      = lower.startsWith('skip');
+      const isComposite = modName === '1/2 and 1/2 Base' || modName === '1/2 and 1/2 Mains' ||
+                          modName === '1/2 and 1/2 Grains' || modName === '1/2 and 1/2 Greens';
+      let unitCost = null; let rowTotal = null;
+      if (isSkip) { unitCost = 0; rowTotal = 0; }
+      else if (isComposite) { unitCost = subWeightedAvg(sub); rowTotal = unitCost * qty; }
+      else { unitCost = _getModCost_(modName, costMap); rowTotal = (unitCost !== null) ? unitCost * qty : null; }
+      if (rowTotal !== null) sectionCostTotal += rowTotal;
+      if (!isSkip) sectionQty += qty;
+      const rowPct       = (!isSkip && totalModQty > 0) ? qty / totalModQty : '';
+      const weightedCost = (rowPct !== '' && unitCost !== null) ? rowPct * unitCost : '';
+      const dr = Array(NUM_COLS).fill('');
+      dr[0] = modName; dr[1] = qty; dr[3] = (unitCost !== null) ? unitCost : '';
+      if (baseCost === 0 && !hasSubTab) { dr[4] = rowPct; dr[5] = weightedCost; }
+      else { dr[4] = (rowTotal !== null) ? rowTotal : ''; }
+      const si = idx + 1;
+      if (hasSubTab && si < subArr.length) {
+        const [sm, sq] = subArr[si]; const sc = _getModCost_(sm, costMap) || 0;
+        dr[7] = sm; dr[8] = sq; dr[10] = sc;
+        dr[11] = subTotal > 0 ? sq/subTotal : '';
+        dr[12] = subTotal > 0 ? (sq/subTotal)*sc : '';
+      }
+      push(dr, null, false);
+    });
+
+    // Write any remaining sub-table entries that didn't fit alongside col A rows
+    // (happens when sub has more entries than modArr, e.g. 1/2 Romaine Lettuce
+    //  being the 8th sub-table entry when only 7 col A data rows exist)
+    // Overflow sub-table entries: subArr[0] was consumed by the header row,
+    // subArr[1..modArr.length] by data rows (si = idx+1), so overflow starts at modArr.length+1
+    if (hasSubTab && subArr.length > modArr.length + 1) {
+      for (var extraIdx = modArr.length + 1; extraIdx < subArr.length; extraIdx++) {
+        var xRow = Array(NUM_COLS).fill('');
+        var [xm, xq] = subArr[extraIdx];
+        var xc = _getModCost_(xm, costMap) || 0;
+        xRow[7] = xm; xRow[8] = xq; xRow[10] = xc;
+        xRow[11] = subTotal > 0 ? xq/subTotal : '';
+        xRow[12] = subTotal > 0 ? (xq/subTotal)*xc : '';
+        push(xRow, null, false);
+      }
+    }
+
+    const gtRow = Array(NUM_COLS).fill('');
+    gtRow[0] = 'Grand Total'; gtRow[1] = sectionQty;
+    if (baseCost === 0 && !hasSubTab) {
+      const wAvg = sectionQty > 0 ? sectionCostTotal / sectionQty : 0;
+      gtRow[5] = wAvg;
+    } else { gtRow[4] = sectionCostTotal; }
+    if (hasSubTab) { gtRow[7] = 'Grand Total'; gtRow[8] = subTotal; gtRow[12] = subWeightedAvg(sub); }
+    push(gtRow, '#FFEB9C', true);
+
+    if (!excludeCost) totalModCost += sectionCostTotal;
+  });
+
+  if (baseCost > 0) {
+    const totalAvgCost = baseCost * itemQty;
+    const modPlusAvg   = totalModCost + totalAvgCost;
+    const finalAvgCost = itemQty > 0 ? modPlusAvg / itemQty : 0;
+    spacer();
+    const sr = function(label, val) { const rv = Array(NUM_COLS).fill(''); rv[0] = label; rv[4] = val; return rv; };
+    push(sr('AVG COST OF ' + item.name.toUpperCase() + ' (' + channelLabel + ')', baseCost), '#FFEB9C', true);
+    push(sr('TOTAL MODIFIER COST', totalModCost),   '#FFEB9C', false);
+    push(sr('TOTAL AVG COST', totalAvgCost),         '#FFEB9C', false);
+    push(sr('MODIFIER + AVG COST', modPlusAvg),      '#FFEB9C', false);
+    push(sr('FINAL AVG COST WITH MODIFIER', finalAvgCost), '#FF0000', true);
+  }
+
+  if (!rows.length) return;
+  ws.getRange(1, 1, rows.length, NUM_COLS).setValues(rows);
+  for (let i = 0; i < style.length; i++) {
+    const { bg, bold } = style[i];
+    const r = ws.getRange(i+1, 1, 1, NUM_COLS);
+    if (bg)   r.setBackground(bg);
+    if (bold) r.setFontWeight('bold');
+  }
+  [4,5,11,12,13].forEach(c =>
+    ws.getRange(1, c, rows.length, 1).setNumberFormat('$#,##0.0000'));
+  [[1,280],[2,100],[3,20],[4,110],[5,130],[6,20],[7,20],
+   [8,240],[9,100],[10,20],[11,110],[12,130],[13,140]]
+    .forEach(([c,w]) => ws.setColumnWidth(c, w));
+  ws.setTabColor('#FF69B4');
+}
+
+function debugPinkCosts() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var costMap = _buildModifierCostMap_();
+    var mapSize = Object.keys(costMap).length;
+    var normChicken = _normMod_('Chicken Tikka');
+    var normRice    = _normMod_('Basmati Rice');
+    var normSauce   = _normMod_('Tomato Garlic (Butter Masala)');
+    var msg = 'costMap size: ' + mapSize + '\n'
+      + 'Chicken Tikka: ' + costMap[normChicken] + '\n'
+      + 'Basmati Rice: ' + costMap[normRice] + '\n'
+      + 'Tomato Garlic (Butter Masala): ' + costMap[normSauce] + '\n'
+      + 'Tomato Garlic Sauce: ' + costMap[_normMod_('Tomato Garlic Sauce')];
+    ui.alert('Pink Sheet Debug', msg, ui.ButtonSet.OK);
+  } catch(e) {
+    ui.alert('Error', e.message + '\n' + e.stack, ui.ButtonSet.OK);
+  }
+}

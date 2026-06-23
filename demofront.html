@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RASA PMix Dashboard — Kutlerri</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{--bg:#f4f1f8;--card:#fff;--header:#381d7c;--accent:#7c3aed;--accent2:#2563eb;--text:#1a1f2e;--muted:#6b7280;--border:rgba(124,58,237,0.15);--radius:14px;--shadow:0 2px 12px rgba(124,58,237,0.10);--shadow-md:0 4px 20px rgba(124,58,237,0.15);--ch-inhouse:#9f7cef;--ch-app:#7cb9ef;--ch-3pd:#ef7ccf;--ch-catering:#f5a623;--ch-offsite:#2ec4b6;--loc-ballpark:#ef4444;--loc-mvt:#f59e0b;--loc-mosaic:#10b981;--loc-nl:#3b82f6;--loc-rockville:#8b5cf6}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Montserrat',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);font-size:13px;min-height:100vh}
+.container{max-width:1440px;margin:0 auto;padding:12px 16px}
+.hdr{background:var(--header);border-radius:var(--radius);padding:11px 18px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.hdr-l{display:flex;align-items:center;gap:12px}
+.rasa-box{background:#fff;border-radius:6px;padding:3px 9px;font-size:15px;font-weight:900;color:#381d7c;letter-spacing:-1px}
+.hdr-title{color:#fff;font-size:15px;font-weight:700}
+.hdr-sub{color:rgba(255,255,255,0.55);font-size:10px;margin-top:1px}
+.pbadge{background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px}
+.hdr-r{display:flex;align-items:center;gap:10px}
+.hdr-status{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.1);padding:5px 10px;border-radius:8px;color:rgba(255,255,255,0.8);font-size:10px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:#10b981;display:inline-block}
+.rbtn{padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.12);color:#fff;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit}
+.klogo{color:#fff;font-size:13px;font-weight:700;border-left:1px solid rgba(255,255,255,0.2);padding-left:10px}
+.fb{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:8px 14px;margin-bottom:8px}
+.fb-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fb-lbl{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.fb-sep{width:1px;height:18px;background:var(--border);flex-shrink:0}
+.fb-sel{padding:5px 9px;border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--text);background:var(--card);cursor:pointer;font-family:inherit;height:30px}
+.drw{position:relative;display:inline-block}
+.drb{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;height:30px}
+.drb:hover{border-color:var(--accent);background:#f5f3ff}
+.drm{display:none;position:absolute;top:calc(100% + 4px);left:0;background:var(--card);border-radius:10px;box-shadow:var(--shadow-md);border:1px solid var(--border);min-width:220px;z-index:200;padding:6px;max-height:320px;overflow-y:auto}
+.drm.open{display:block}
+.dr-sec{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:5px 8px 2px}
+.dr-it{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:500;color:var(--text)}
+.dr-it:hover{background:#f5f3ff;color:var(--accent)}
+.dr-it.on{background:var(--accent);color:#fff}
+.dr-div{height:1px;background:var(--border);margin:4px 0}
+.dr-dates{padding:6px 8px;display:flex;flex-direction:column;gap:5px}
+.dr-dr{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+.dr-dr input{flex:1;padding:4px 7px;border:1px solid var(--border);border-radius:6px;font-size:11px;font-family:inherit;color:var(--text)}
+.dr-apply{width:100%;margin-top:3px;padding:5px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+.chp{display:flex;gap:4px;flex-wrap:wrap}
+.cp{padding:3px 10px;border-radius:20px;border:1px solid var(--border);background:var(--card);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--text);white-space:nowrap}
+.cp.on{color:#fff;border-color:transparent}
+.cp.on.all{background:var(--accent)}.cp.on.ih{background:var(--ch-inhouse)}.cp.on.app{background:var(--ch-app);color:var(--text)}.cp.on.tpd{background:var(--ch-3pd)}.cp.on.cat{background:var(--ch-catering);color:var(--text)}.cp.on.off{background:var(--ch-offsite);color:var(--text)}
+.rck{display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;font-weight:600}
+.rck input{accent-color:var(--accent);width:13px;height:13px}
+.tabs-o{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:12px;overflow-x:auto;scrollbar-width:none}
+.tabs-o::-webkit-scrollbar{display:none}
+.tabs-i{display:flex;align-items:stretch;padding:0 6px;min-width:max-content}
+.tb{display:flex;align-items:center;gap:5px;padding:10px 13px;border:none;border-bottom:2px solid transparent;background:none;font-family:inherit;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tb:hover{color:var(--accent);background:#faf9fd}
+.tb.on{color:var(--accent);border-bottom-color:var(--accent)}
+.krow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px}
+.krow.k3{grid-template-columns:repeat(3,1fr)}.krow.k4{grid-template-columns:repeat(4,1fr)}
+.kc{background:var(--card);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);border-left:3px solid transparent}
+.kc.a{border-left-color:var(--accent)}.kc.g{border-left-color:#10b981}.kc.b{border-left-color:var(--accent2)}.kc.p{border-left-color:#8b5cf6}.kc.pk{border-left-color:#ec4899}.kc.t{border-left-color:#14b8a6}.kc.o{border-left-color:#f59e0b}
+.kl{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.kv{font-size:22px;font-weight:700;color:var(--text);line-height:1}
+.kv-sm{font-size:14px;font-weight:700;color:var(--text);margin-top:2px}
+.ks{font-size:10px;color:var(--muted);margin-top:3px}
+.kd{font-size:10px;font-weight:700;margin-top:3px}
+.up{color:#10b981}.dn{color:#ef4444}
+.gr2{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:10px}
+.gr22{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.gr3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+.cc{background:var(--card);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+.cc h3{font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+.tw{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-bottom:10px}
+.th2{padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}
+.th2 h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+table{width:100%;border-collapse:collapse}
+thead th{padding:7px 10px;background:#f9fafb;border-bottom:1px solid var(--border);font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;text-align:left;white-space:nowrap;cursor:pointer}
+thead th:hover{color:var(--text)}
+tbody td{padding:7px 10px;border-bottom:1px solid #f3f4f6;font-size:11px;vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#faf9fd}
+.srch{padding:5px 10px;border-radius:6px;border:1px solid var(--border);font-size:11px;width:160px;font-family:inherit;outline:none}
+.srch:focus{border-color:var(--accent)}
+.mb{display:inline-block;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase}
+.mb-Star{background:#dcfce7;color:#14532d}.mb-Plow{background:#ede9fe;color:#5b21b6}.mb-Puzzle{background:#dbeafe;color:#1e3a8a}.mb-Dog{background:#fee2e2;color:#7f1d1d}
+.bw{display:flex;align-items:center;gap:4px}
+.bb{flex:1;background:#e5e7eb;border-radius:3px;height:5px;overflow:hidden;min-width:40px}
+.bf{height:100%;border-radius:3px;background:var(--accent)}
+.tgl-g{display:flex;gap:3px;background:#f3f0fb;border-radius:8px;padding:3px}
+.tgl{padding:4px 11px;border-radius:5px;border:none;background:none;font-family:inherit;font-size:10px;font-weight:700;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tgl.on{background:var(--accent);color:#fff}
+.sec-hdr{display:flex;align-items:center;gap:8px;padding:12px 0 8px;font-size:12px;font-weight:700;color:#381d7c;border-bottom:2px solid #ede9fe;margin-bottom:10px}
+.lpill{padding:4px 12px;border-radius:20px;border:2px solid;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;background:transparent}
+.lpill.on{color:#fff!important}
+.lp-bp{border-color:var(--loc-ballpark);color:var(--loc-ballpark)}.lp-bp.on{background:var(--loc-ballpark)}
+.lp-mvt{border-color:var(--loc-mvt);color:var(--loc-mvt)}.lp-mvt.on{background:var(--loc-mvt)}
+.lp-mo{border-color:var(--loc-mosaic);color:var(--loc-mosaic)}.lp-mo.on{background:var(--loc-mosaic)}
+.lp-nl{border-color:var(--loc-nl);color:var(--loc-nl)}.lp-nl.on{background:var(--loc-nl)}
+.lp-rk{border-color:var(--loc-rockville);color:var(--loc-rockville)}.lp-rk.on{background:var(--loc-rockville)}
+.rate-tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700}
+.rh{background:#d1fae5;color:#065f46}.rm{background:#fef3c7;color:#92400e}.rl{background:#fee2e2;color:#991b1b}
+.delta-tag{font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px}
+.dt-up{background:#d1fae5;color:#065f46}.dt-dn{background:#fee2e2;color:#991b1b}.dt-neu{background:#f3f4f6;color:var(--muted)}
+.me-quad-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.mqc{border-radius:var(--radius);padding:14px 16px;text-align:center}
+.mqc.star{background:#dcfce7;border:1px solid #86efac}.mqc.plow{background:#ede9fe;border:1px solid #c4b5fd}.mqc.puzzle{background:#dbeafe;border:1px solid #93c5fd}.mqc.dog{background:#fee2e2;border:1px solid #fca5a5}
+.mql{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.mqc.star .mql{color:#14532d}.mqc.plow .mql{color:#5b21b6}.mqc.puzzle .mql{color:#1e3a8a}.mqc.dog .mql{color:#991b1b}
+.mqn{font-size:28px;font-weight:700}
+.mqc.star .mqn{color:#16a34a}.mqc.plow .mqn{color:var(--accent)}.mqc.puzzle .mqn{color:#1e40af}.mqc.dog .mqn{color:#dc2626}
+.mqr{font-size:10px;color:var(--muted);margin-top:2px}
+.byo-col{background:var(--card);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+.byo-col h3{font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;border-bottom:2px solid #ede9fe;padding-bottom:6px}
+.byo-item{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f3f4f6}
+.byo-item:last-child{border-bottom:none}
+.byo-name{font-size:11px;color:var(--text);flex:1}
+.byo-bar-bg{width:80px;height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden}
+.byo-bar-fill{height:100%;border-radius:3px;background:#9f7cef}
+.byo-pct{font-size:10px;color:var(--muted);font-weight:700;min-width:34px;text-align:right}
+.nr-card{background:var(--card);border-radius:12px;border:1px solid var(--border);padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;box-shadow:var(--shadow)}
+.nr-tag{display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:#fef3c7;color:#92400e;margin-bottom:3px}
+.nr-main{font-weight:700;font-size:12px;margin-bottom:2px}
+.nr-sub{font-size:10px;color:var(--muted)}
+.nr-hint{font-size:10px;color:var(--accent);margin-top:2px}
+.set-btn{padding:5px 14px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
+.info-banner{border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:11px;display:flex;align-items:flex-start;gap:6px}
+.info-banner.blue{background:#f0f9ff;color:#0c447c}
+.info-banner.yellow{background:#fef9c3;color:#854d0e}
+.info-banner.purple{background:#f5f3ff;color:#381d7c}
+@media(max-width:900px){.gr2,.gr22,.gr3{grid-template-columns:1fr}.me-quad-grid{grid-template-columns:repeat(2,1fr)}.krow{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-l">
+    <div class="rasa-box">RASA</div>
+    <div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="hdr-title">Product Mix Dashboard</span>
+        <span class="pbadge" id="periodBadge">P5 2026</span>
+      </div>
+      <div class="hdr-sub">91 menu items · May 6 – Jun 3, 2026</div>
+    </div>
+  </div>
+  <div class="hdr-r">
+    <div class="hdr-status"><span class="status-dot"></span>Last data: 2026-06-03</div>
+    <button class="rbtn" onclick="location.reload()"><i class="ti ti-refresh" aria-hidden="true"></i> Refresh</button>
+    <span class="klogo">Kutlerri</span>
+  </div>
+</div>
+
+<!-- FILTER BAR -->
+<div class="fb">
+  <div class="fb-r">
+    <div class="drw" id="drD">
+      <button class="drb" onclick="tog('drD')"><i class="ti ti-calendar" aria-hidden="true" style="font-size:13px;color:#7c3aed"></i><span id="dlbl">P5 2026</span><i class="ti ti-chevron-down" aria-hidden="true" style="font-size:10px;color:#6b7280"></i></button>
+      <div class="drm" id="drDm">
+        <div class="dr-sec">Quick select</div>
+        <div class="dr-it" onclick="sd(this,'This Week')"><i class="ti ti-calendar-week" aria-hidden="true"></i>This Week</div>
+        <div class="dr-it" onclick="sd(this,'Last Week')"><i class="ti ti-calendar-week" aria-hidden="true"></i>Last Week</div>
+        <div class="dr-it" onclick="sd(this,'This Month')"><i class="ti ti-calendar-month" aria-hidden="true"></i>This Month</div>
+        <div class="dr-it" onclick="sd(this,'Last 4 Weeks')"><i class="ti ti-calendar-stats" aria-hidden="true"></i>Last 4 Weeks</div>
+        <div class="dr-it" onclick="sd(this,'YTD')"><i class="ti ti-calendar-time" aria-hidden="true"></i>Year to date</div>
+        <div class="dr-div"></div>
+        <div class="dr-sec">Quarter</div>
+        <div class="dr-it" onclick="sd(this,'Q1 2026')">Q1 2026 (Jan–Mar)</div>
+        <div class="dr-it" onclick="sd(this,'Q2 2026')">Q2 2026 (Apr–Jun)</div>
+        <div class="dr-it" onclick="sd(this,'Q3 2026')">Q3 2026 (Jul–Sep)</div>
+        <div class="dr-it" onclick="sd(this,'Q4 2026')">Q4 2026 (Oct–Dec)</div>
+        <div class="dr-div"></div>
+        <div class="dr-sec">Period</div>
+        <div class="dr-it" onclick="sd(this,'P3 2026')">P3 2026</div>
+        <div class="dr-it" onclick="sd(this,'P4 2026')">P4 2026</div>
+        <div class="dr-it on" onclick="sd(this,'P5 2026')">P5 2026 ✓</div>
+        <div class="dr-div"></div>
+        <div class="dr-sec">Custom range</div>
+        <div class="dr-dates">
+          <div class="dr-dr">From<input type="date" value="2026-05-06" id="cF"/></div>
+          <div class="dr-dr">To<input type="date" value="2026-06-03" id="cT"/></div>
+          <button class="dr-apply" onclick="ac()">Apply</button>
+        </div>
+      </div>
+    </div>
+    <div class="fb-sep"></div>
+    <span class="fb-lbl">Location</span>
+    <select class="fb-sel">
+      <option>All locations</option><option>Ballpark</option><option>MVT</option><option>Mosaic</option><option>NL</option><option>Rockville</option>
+    </select>
+    <div class="fb-sep"></div>
+    <div class="drw" id="drM">
+      <button class="drb" onclick="tog('drM')"><i class="ti ti-menu-2" aria-hidden="true" style="font-size:13px;color:#7c3aed"></i><span id="mlbl">All menus</span><i class="ti ti-chevron-down" aria-hidden="true" style="font-size:10px;color:#6b7280"></i></button>
+      <div class="drm" id="drMm">
+        <div class="dr-sec">Menu</div>
+        <div class="dr-it on" onclick="sm(this,'ALL','All menus')"><i class="ti ti-check" aria-hidden="true"></i>ALL</div>
+        <div class="dr-it" onclick="sm(this,'APP','APP')">APP</div>
+        <div class="dr-it" onclick="sm(this,'CATERING','CATERING')">CATERING</div>
+        <div class="dr-it" onclick="sm(this,'CATERING - 3PD','CATERING - 3PD')">CATERING - 3PD</div>
+        <div class="dr-it" onclick="sm(this,'DELIVERY','DELIVERY')">DELIVERY</div>
+        <div class="dr-it" onclick="sm(this,'DELIVERY - DOORDASH','DELIVERY - DOORDASH')">DELIVERY - DOORDASH</div>
+        <div class="dr-it" onclick="sm(this,'DELIVERY - GRUBHUB','DELIVERY - GRUBHUB')">DELIVERY - GRUBHUB</div>
+        <div class="dr-it" onclick="sm(this,'DELIVERY - POSTMATES','DELIVERY - POSTMATES')">DELIVERY - POSTMATES</div>
+        <div class="dr-it" onclick="sm(this,'DRINKS - IN HOUSE','DRINKS - IN HOUSE')">DRINKS - IN HOUSE</div>
+        <div class="dr-it" onclick="sm(this,'FOOD - IN HOUSE','FOOD - IN HOUSE')">FOOD - IN HOUSE</div>
+      </div>
+    </div>
+    <div class="fb-sep"></div>
+    <label class="rck"><input type="checkbox" checked/> Real menu items only</label>
+    <div class="fb-sep"></div>
+    <span class="fb-lbl">Channel</span>
+    <div class="chp">
+      <button class="cp on all" onclick="sch(this,'all')">All</button>
+      <button class="cp" onclick="sch(this,'ih')">In-House</button>
+      <button class="cp" onclick="sch(this,'app')">App</button>
+      <button class="cp" onclick="sch(this,'tpd')">3PD</button>
+      <button class="cp" onclick="sch(this,'cat')">Catering</button>
+      <button class="cp" onclick="sch(this,'off')">Offsites</button>
+    </div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs-o">
+  <div class="tabs-i">
+    <button class="tb on" onclick="swt('overview',this)"><i class="ti ti-layout-dashboard" aria-hidden="true"></i> Overview</button>
+    <button class="tb" onclick="swt('itemmix',this)"><i class="ti ti-list" aria-hidden="true"></i> Item Mix</button>
+    <button class="tb" onclick="swt('loccompare',this)"><i class="ti ti-map-pin" aria-hidden="true"></i> Location Compare</button>
+    <button class="tb" onclick="swt('chanmenu',this)"><i class="ti ti-arrows-split-2" aria-hidden="true"></i> Channel & Menu</button>
+    <button class="tb" onclick="swt('byo',this)"><i class="ti ti-salad" aria-hidden="true"></i> BYO Breakdown</button>
+    <button class="tb" onclick="swt('payment',this)"><i class="ti ti-credit-card" aria-hidden="true"></i> Payment Source</button>
+    <button class="tb" onclick="swt('renames',this)"><i class="ti ti-refresh" aria-hidden="true"></i> Renames Audit</button>
+    <button class="tb" onclick="swt('needs',this)"><i class="ti ti-alert-triangle" aria-hidden="true"></i> Needs Review</button>
+    <button class="tb" onclick="swt('me',this)"><i class="ti ti-star" aria-hidden="true"></i> Menu Engineering</button>
+    <button class="tb" onclick="swt('channels',this)"><i class="ti ti-chart-pie" aria-hidden="true"></i> Channels</button>
+    <button class="tb" onclick="swt('bikky',this)"><i class="ti ti-users" aria-hidden="true"></i> Customer Retention</button>
+    <button class="tb" onclick="swt('allitems',this)"><i class="ti ti-table" aria-hidden="true"></i> All Items</button>
+  </div>
+</div>
+
+<!-- ===== OVERVIEW ===== -->
+<div id="p-overview">
+  <div class="krow">
+    <div class="kc a"><div class="kl">Items Sold</div><div class="kv">40,799</div><div class="kd dn">▼ 12.4% vs P4</div></div>
+    <div class="kc g"><div class="kl">Net Revenue</div><div class="kv">$417K</div><div class="kd dn">▼ 8.9% vs P4</div></div>
+    <div class="kc b"><div class="kl">Avg Margin</div><div class="kv">75.4%</div><div class="ks">blended · P5</div></div>
+    <div class="kc p"><div class="kl">Unique Items</div><div class="kv">91</div><div class="ks">real menu items</div></div>
+    <div class="kc pk"><div class="kl">Top Item</div><div class="kv-sm">Chicken Tikka Bowl</div><div class="ks">13.8% mix · $76,966</div></div>
+  </div>
+  <div class="gr2">
+    <div class="cc"><h3>Weekly sales trend — P5 2026</h3><div style="position:relative;height:170px"><canvas id="c1"></canvas></div></div>
+    <div class="cc"><h3>Revenue by channel</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;font-size:10px">
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#9f7cef;display:inline-block"></span>In-House 42%</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#f5a623;display:inline-block"></span>Catering 24%</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#ef7ccf;display:inline-block"></span>3PD 18%</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#7cb9ef;display:inline-block"></span>App 10%</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#2ec4b6;display:inline-block"></span>Offsites 6%</span>
+      </div>
+      <div style="position:relative;height:130px"><canvas id="c2"></canvas></div>
+    </div>
+  </div>
+  <div class="gr22">
+    <div class="cc"><h3>Top 8 items by revenue</h3><div style="position:relative;height:280px"><canvas id="c3"></canvas></div></div>
+    <div class="cc"><h3>Revenue by category</h3><div style="position:relative;height:280px"><canvas id="c4"></canvas></div></div>
+  </div>
+</div>
+
+<!-- ===== ITEM MIX ===== -->
+<div id="p-itemmix" style="display:none">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <input class="srch" placeholder="Search items..." oninput="filterIM(this.value)"/>
+    <span style="font-size:10px;color:#6b7280;font-weight:700">GROUP BY</span>
+    <select class="fb-sel"><option>Menu Group</option><option>Category</option><option>Menu</option></select>
+    <div class="tgl-g">
+      <button class="tgl on" onclick="stgl(this)">Qty</button>
+      <button class="tgl" onclick="stgl(this)">Revenue</button>
+      <button class="tgl" onclick="stgl(this)">% Mix</button>
+    </div>
+  </div>
+  <div class="tw"><div style="overflow-x:auto"><table>
+    <thead><tr><th>Item</th><th>Menu</th><th>Menu Group</th><th>QTY ▼</th><th>Revenue</th><th>Avg Price</th><th>% Mix</th><th>Orders</th></tr></thead>
+    <tbody id="imBody">
+      <tr class="grp-hdr" onclick="tg('bowls',this)"><td colspan="8" style="background:#f5f3ff;font-weight:700;font-size:11px;color:#381d7c;padding:8px 10px;cursor:pointer"><span class="cv" style="margin-right:5px;display:inline-block;transform:rotate(90deg)">▶</span>BOWLS <span style="color:#6b7280;font-weight:400;font-size:10px">18,482 qty · $236K · 45.3%</span></td></tr>
+      <tr class="grp-bowls"><td style="padding-left:20px">Chicken Tikka Bowl</td><td style="color:#7c3aed;font-size:10px">Multiple (9)</td><td>BOWLS</td><td>5,626</td><td>$76,966</td><td>$13.68</td><td>13.8%</td><td>4,821</td></tr>
+      <tr class="grp-bowls"><td style="padding-left:20px">BYO Grain Bowl</td><td style="color:#7c3aed;font-size:10px">Multiple (9)</td><td>BOWLS</td><td>4,924</td><td>$70,276</td><td>$14.27</td><td>12.1%</td><td>4,112</td></tr>
+      <tr class="grp-bowls"><td style="padding-left:20px">Spicy Chili Chicken Bowl</td><td style="color:#7c3aed;font-size:10px">Multiple (9)</td><td>BOWLS</td><td>2,467</td><td>$37,758</td><td>$15.31</td><td>6.0%</td><td>2,104</td></tr>
+      <tr class="grp-bowls"><td style="padding-left:20px">BYO Greens + Grains Bowl</td><td style="color:#7c3aed;font-size:10px">Multiple (8)</td><td>BOWLS</td><td>1,252</td><td>$18,821</td><td>$15.03</td><td>3.1%</td><td>1,089</td></tr>
+      <tr class="grp-bowls"><td style="padding-left:20px">Paneer Tikka Bowl</td><td style="color:#7c3aed;font-size:10px">Multiple (9)</td><td>BOWLS</td><td>1,778</td><td>$26,707</td><td>$15.02</td><td>4.4%</td><td>1,502</td></tr>
+      <tr class="grp-bowls"><td style="padding-left:20px">Lamb Kebab Bowl</td><td style="color:#7c3aed;font-size:10px">Multiple (9)</td><td>BOWLS</td><td>873</td><td>$13,623</td><td>$15.60</td><td>2.1%</td><td>741</td></tr>
+      <tr class="grp-hdr" onclick="tg('sides',this)"><td colspan="8" style="background:#f5f3ff;font-weight:700;font-size:11px;color:#381d7c;padding:8px 10px;cursor:pointer"><span class="cv" style="margin-right:5px;display:inline-block;transform:rotate(90deg)">▶</span>SIDES <span style="color:#6b7280;font-weight:400;font-size:10px">6,745 qty · $28K · 16.5%</span></td></tr>
+      <tr class="grp-sides"><td style="padding-left:20px">Garlic Naan</td><td style="color:#7c3aed;font-size:10px">Multiple (9)</td><td>SIDES</td><td>2,623</td><td>$9,397</td><td>$3.58</td><td>6.4%</td><td>2,201</td></tr>
+      <tr class="grp-sides"><td style="padding-left:20px">Mini Samosas</td><td style="color:#7c3aed;font-size:10px">Multiple (9)</td><td>SIDES</td><td>2,262</td><td>$6,182</td><td>$2.73</td><td>5.5%</td><td>1,944</td></tr>
+      <tr class="grp-sides"><td style="padding-left:20px">Naan</td><td style="color:#7c3aed;font-size:10px">Multiple (9)</td><td>SIDES</td><td>1,160</td><td>$3,491</td><td>$3.01</td><td>2.8%</td><td>987</td></tr>
+      <tr class="grp-hdr" onclick="tg('drinks',this)"><td colspan="8" style="background:#f5f3ff;font-weight:700;font-size:11px;color:#381d7c;padding:8px 10px;cursor:pointer"><span class="cv" style="margin-right:5px;display:inline-block;transform:rotate(90deg)">▶</span>NA DRINKS <span style="color:#6b7280;font-weight:400;font-size:10px">7,165 qty · $39K · 17.6%</span></td></tr>
+      <tr class="grp-drinks"><td style="padding-left:20px">Mango Lassi</td><td style="color:#7c3aed;font-size:10px">Multiple (9)</td><td>DRINKS</td><td>2,448</td><td>$13,845</td><td>$5.66</td><td>6.0%</td><td>2,100</td></tr>
+      <tr class="grp-drinks"><td style="padding-left:20px">Homemade Juice</td><td style="color:#7c3aed;font-size:10px">Multiple (7)</td><td>DRINKS</td><td>1,225</td><td>$4,034</td><td>$3.29</td><td>3.0%</td><td>1,040</td></tr>
+      <tr class="grp-drinks"><td style="padding-left:20px">Maine Root Fountain Soda</td><td style="color:#7c3aed;font-size:10px">Multiple (5)</td><td>DRINKS</td><td>536</td><td>$1,756</td><td>$3.28</td><td>1.3%</td><td>460</td></tr>
+      <tr class="grp-hdr" onclick="tg('plates',this)"><td colspan="8" style="background:#f5f3ff;font-weight:700;font-size:11px;color:#381d7c;padding:8px 10px;cursor:pointer"><span class="cv" style="margin-right:5px;display:inline-block;transform:rotate(90deg)">▶</span>PLATES <span style="color:#6b7280;font-weight:400;font-size:10px">3,263 qty · $61K · 8.0%</span></td></tr>
+      <tr class="grp-plates"><td style="padding-left:20px">Butter Chicken</td><td style="color:#7c3aed;font-size:10px">Multiple (8)</td><td>PLATES</td><td>1,177</td><td>$18,639</td><td>$15.84</td><td>2.9%</td><td>989</td></tr>
+      <tr class="grp-plates"><td style="padding-left:20px">Chicken Tikka Masala</td><td style="color:#7c3aed;font-size:10px">Multiple (8)</td><td>PLATES</td><td>751</td><td>$12,026</td><td>$16.01</td><td>1.8%</td><td>631</td></tr>
+      <tr class="grp-plates"><td style="padding-left:20px">Saag Paneer</td><td style="color:#7c3aed;font-size:10px">Multiple (6)</td><td>PLATES</td><td>457</td><td>$6,722</td><td>$14.71</td><td>1.1%</td><td>389</td></tr>
+    </tbody>
+  </table></div></div>
+</div>
+
+<!-- ===== LOCATION COMPARE ===== -->
+<div id="p-loccompare" style="display:none">
+  <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+    <button class="lpill lp-bp on" onclick="this.classList.toggle('on')">Ballpark</button>
+    <button class="lpill lp-mvt on" onclick="this.classList.toggle('on')">MVT</button>
+    <button class="lpill lp-mo on" onclick="this.classList.toggle('on')">Mosaic</button>
+    <button class="lpill lp-nl on" onclick="this.classList.toggle('on')">NL</button>
+    <button class="lpill lp-rk on" onclick="this.classList.toggle('on')">Rockville</button>
+  </div>
+  <div class="tgl-g" style="margin-bottom:10px">
+    <button class="tgl on" onclick="stgl(this)">% of Mix</button>
+    <button class="tgl" onclick="stgl(this)">Quantity</button>
+    <button class="tgl" onclick="stgl(this)">Revenue</button>
+  </div>
+  <div class="tw"><div style="overflow-x:auto"><table>
+    <thead><tr><th style="text-align:left">Item</th><th style="color:#ef4444">BALLPARK</th><th style="color:#f59e0b">MVT</th><th style="color:#10b981">MOSAIC</th><th style="color:#3b82f6">NL</th><th style="color:#8b5cf6">ROCKVILLE</th><th>AVG</th></tr></thead>
+    <tbody>
+      <tr><td style="font-weight:600">Chicken Tikka Bowl</td><td>8.5%</td><td>10.7%</td><td style="font-weight:700;color:#7c3aed">12.9%</td><td>12.5%</td><td>7.7%</td><td>10.5%</td></tr>
+      <tr><td style="font-weight:600">BYO Grain Bowl</td><td>11.1%</td><td>6.7%</td><td>7.1%</td><td>10.2%</td><td style="font-weight:700;color:#7c3aed">13.4%</td><td>9.7%</td></tr>
+      <tr><td style="font-weight:600">Mango Lassi</td><td>4.1%</td><td>4.9%</td><td style="font-weight:700;color:#7c3aed">8.0%</td><td>5.2%</td><td>6.5%</td><td>5.7%</td></tr>
+      <tr><td style="font-weight:600">Garlic Naan</td><td>5.1%</td><td>4.2%</td><td>4.0%</td><td style="font-weight:700;color:#7c3aed">5.4%</td><td>5.2%</td><td>4.8%</td></tr>
+      <tr><td style="font-weight:600">Spicy Chili Chicken Bowl</td><td>3.7%</td><td>4.2%</td><td>5.2%</td><td style="font-weight:700;color:#7c3aed">5.3%</td><td>4.3%</td><td>4.5%</td></tr>
+      <tr><td style="font-weight:600">Mini Samosas</td><td>4.2%</td><td>3.8%</td><td>4.4%</td><td>3.7%</td><td style="font-weight:700;color:#7c3aed">5.2%</td><td>4.3%</td></tr>
+      <tr><td style="font-weight:600">Butter Chicken</td><td>3.1%</td><td style="font-weight:700;color:#7c3aed">4.8%</td><td>4.2%</td><td>3.9%</td><td>3.6%</td><td>3.9%</td></tr>
+      <tr><td style="font-weight:600">Kids Meal</td><td style="font-weight:700;color:#7c3aed">2.8%</td><td>1.4%</td><td>1.2%</td><td>1.5%</td><td>1.6%</td><td>1.7%</td></tr>
+    </tbody>
+  </table></div></div>
+</div>
+
+<!-- ===== CHANNEL & MENU ===== -->
+<div id="p-chanmenu" style="display:none">
+  <div class="sec-hdr"><i class="ti ti-arrows-split-2" aria-hidden="true"></i>Channel overview</div>
+  <div class="gr3">
+    <div class="cc"><h3>Top items — In-House</h3>
+      <div style="font-size:10px;color:#9f7cef;font-weight:700;margin-bottom:6px">In-Store</div>
+      <div style="font-size:11px;margin-bottom:3px">Grain Bowl <span style="color:#6b7280">18.1%</span></div>
+      <div style="font-size:11px;margin-bottom:3px">Chicken Tikka Bowl <span style="color:#6b7280">9.4%</span></div>
+      <div style="font-size:11px;margin-bottom:8px">Mango Lassi <span style="color:#6b7280">6.5%</span></div>
+      <div style="font-size:10px;color:#7cb9ef;font-weight:700;margin-bottom:6px">App / Online</div>
+      <div style="font-size:11px;margin-bottom:3px">Chicken Tikka Bowl <span style="color:#6b7280">19.2%</span></div>
+      <div style="font-size:11px;margin-bottom:3px">Grain Bowl <span style="color:#6b7280">8.3%</span></div>
+      <div style="font-size:11px">Spicy Chili Chicken Bowl <span style="color:#6b7280">6.8%</span></div>
+    </div>
+    <div class="cc"><h3>Revenue by menu</h3><div style="position:relative;height:200px"><canvas id="c5"></canvas></div></div>
+    <div class="cc"><h3>Channel vs In-House delta</h3>
+      <table><thead><tr><th>Item</th><th>IH %</th><th>App %</th><th>App Δ</th></tr></thead>
+      <tbody>
+        <tr><td>Grain Bowl</td><td>13.8%</td><td>9.7%</td><td><span class="delta-tag dt-dn">-4.1pp</span></td></tr>
+        <tr><td>Chicken Tikka Bowl</td><td>11.9%</td><td>12.9%</td><td><span class="delta-tag dt-up">+1.0pp</span></td></tr>
+        <tr><td>Homemade Juice</td><td>4.6%</td><td>1.7%</td><td><span class="delta-tag dt-dn">-2.9pp</span></td></tr>
+        <tr><td>Mango Lassi</td><td>7.0%</td><td>4.2%</td><td><span class="delta-tag dt-dn">-2.8pp</span></td></tr>
+        <tr><td>Paneer Tikka Bowl</td><td>3.4%</td><td>4.9%</td><td><span class="delta-tag dt-up">+1.5pp</span></td></tr>
+        <tr><td>Spicy Chili Chicken Bowl</td><td>5.4%</td><td>5.4%</td><td><span class="delta-tag dt-neu">+0.0pp</span></td></tr>
+      </tbody></table>
+    </div>
+  </div>
+  <div class="sec-hdr"><i class="ti ti-tools-kitchen-2" aria-hidden="true"></i>Catering deep-dive</div>
+  <div class="krow">
+    <div class="kc a"><div class="kl">Catering Revenue</div><div class="kv">$112K</div><div class="kd up">▲ 4.2% vs P4</div></div>
+    <div class="kc g"><div class="kl">Catering Orders</div><div class="kv">4,233</div><div class="ks">avg $432 AOV</div></div>
+    <div class="kc b"><div class="kl">People Served</div><div class="kv">3,327</div><div class="ks">via bundles</div></div>
+    <div class="kc p"><div class="kl">Avg Party Size</div><div class="kv">22.6</div><div class="ks">per bundle</div></div>
+    <div class="kc t"><div class="kl">% of Total Rev</div><div class="kv">21.4%</div><div class="ks">P5 2026</div></div>
+  </div>
+  <div class="gr22">
+    <div class="tw"><div class="th2"><h3>Catering platform breakdown</h3></div><div style="overflow-x:auto"><table>
+      <thead><tr><th>Platform</th><th>Orders</th><th>Revenue</th><th>AOV</th><th>% of Catering</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:600">Ez Cater</td><td>181</td><td>$71,477</td><td>$395</td><td>63.6%</td></tr>
+        <tr><td style="font-weight:600">Catering</td><td>22</td><td>$17,733</td><td>$806</td><td>15.8%</td></tr>
+        <tr><td style="font-weight:600">Catering Online</td><td>41</td><td>$17,061</td><td>$416</td><td>15.2%</td></tr>
+        <tr><td style="font-weight:600">HUNGRY</td><td>1</td><td>$1,978</td><td>$1,978</td><td>1.8%</td></tr>
+        <tr><td style="font-weight:600">Territory Foods</td><td>6</td><td>$1,651</td><td>$275</td><td>1.5%</td></tr>
+        <tr><td style="font-weight:600">Cater Cow</td><td>3</td><td>$1,517</td><td>$506</td><td>1.3%</td></tr>
+      </tbody>
+    </table></div></div>
+    <div class="tw"><div class="th2"><h3>Top catering items</h3></div><div style="overflow-x:auto"><table>
+      <thead><tr><th>Item</th><th>Qty</th><th>Revenue</th><th>People</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:600">The Party Pack</td><td>105</td><td>$35,157</td><td>2,272</td></tr>
+        <tr><td style="font-weight:600">The Classic</td><td>53</td><td>$19,917</td><td>1,055</td></tr>
+        <tr><td style="font-weight:600">Tandoori Tasting Bundle</td><td>41</td><td>$7,289</td><td>—</td></tr>
+        <tr><td style="font-weight:600">Chicken Tikka Bowl</td><td>352</td><td>$5,893</td><td>—</td></tr>
+        <tr><td style="font-weight:600">Butter Chicken Burrito</td><td>129</td><td>$4,310</td><td>—</td></tr>
+      </tbody>
+    </table></div></div>
+  </div>
+  <div class="sec-hdr"><i class="ti ti-building" aria-hidden="true"></i>Offsites deep-dive</div>
+  <div class="krow k4">
+    <div class="kc a"><div class="kl">Offsite Revenue</div><div class="kv">$59,965</div><div class="kd up">▲ 2.1% vs P4</div></div>
+    <div class="kc g"><div class="kl">Offsite Orders</div><div class="kv">61</div><div class="ks">avg $983 AOV</div></div>
+    <div class="kc b"><div class="kl">Avg Order Value</div><div class="kv">$983</div></div>
+    <div class="kc t"><div class="kl">% of Total Rev</div><div class="kv">11.4%</div></div>
+  </div>
+  <div class="gr22">
+    <div class="tw"><div class="th2"><h3>Offsite platform breakdown</h3></div><div style="overflow-x:auto"><table>
+      <thead><tr><th>Platform</th><th>Orders</th><th>Revenue</th><th>AOV</th><th>% of Offsites</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:600">Fooda</td><td>28</td><td>$18,095</td><td>$646</td><td>30.2%</td></tr>
+        <tr><td style="font-weight:600">Aramark</td><td>12</td><td>$13,547</td><td>$1,129</td><td>22.6%</td></tr>
+        <tr><td style="font-weight:600">Eurest</td><td>11</td><td>$13,401</td><td>$1,218</td><td>22.3%</td></tr>
+        <tr><td style="font-weight:600">Foodworks</td><td>4</td><td>$8,029</td><td>$2,007</td><td>13.4%</td></tr>
+        <tr><td style="font-weight:600">Cureate</td><td>4</td><td>$3,638</td><td>$910</td><td>6.1%</td></tr>
+        <tr><td style="font-weight:600">Metz Corp</td><td>2</td><td>$3,255</td><td>$1,627</td><td>5.4%</td></tr>
+      </tbody>
+    </table></div></div>
+    <div class="cc"><h3>Day-of-week pattern</h3><table>
+      <thead><tr><th>Day</th><th>Orders</th><th>Revenue</th><th>AOV</th><th>% of Offsite</th></tr></thead>
+      <tbody>
+        <tr><td>Mon</td><td>5</td><td>$3,414</td><td>$683</td><td>8.2%</td></tr>
+        <tr><td>Tue</td><td>12</td><td>$11,339</td><td>$945</td><td>19.7%</td></tr>
+        <tr><td>Wed</td><td>10</td><td>$8,560</td><td>$856</td><td>16.4%</td></tr>
+        <tr><td style="font-weight:700;color:#7c3aed">Thu</td><td style="font-weight:700">22</td><td style="font-weight:700">$23,863</td><td>$1,085</td><td style="font-weight:700;color:#7c3aed">36.1%</td></tr>
+        <tr><td>Fri</td><td>10</td><td>$12,364</td><td>$1,236</td><td>16.4%</td></tr>
+        <tr><td>Sat</td><td>2</td><td>$426</td><td>$213</td><td>3.3%</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- ===== BYO BREAKDOWN ===== -->
+<div id="p-byo" style="display:none">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <span style="font-size:11px;font-weight:700;color:#6b7280">ITEM:</span>
+    <div class="tgl-g"><button class="tgl on" onclick="stgl(this)">All BYO</button><button class="tgl" onclick="stgl(this)">Grain Bowl</button><button class="tgl" onclick="stgl(this)">Greens+Grains</button><button class="tgl" onclick="stgl(this)">Salad Bowl</button></div>
+    <span style="font-size:11px;font-weight:700;color:#6b7280">CHANNEL:</span>
+    <div class="tgl-g"><button class="tgl on" onclick="stgl(this)">All</button><button class="tgl" onclick="stgl(this)">In-House</button><button class="tgl" onclick="stgl(this)">App</button><button class="tgl" onclick="stgl(this)">3PD</button></div>
+  </div>
+  <div class="info-banner yellow"><i class="ti ti-info-circle" aria-hidden="true"></i>Mains are logged on every order. Base · Sauce · Veggie · Topping · Chutney are online-only (App + 3PD). In-house records only the protein.</div>
+  <div class="gr22">
+    <div class="byo-col"><h3>Most popular main</h3>
+      <div class="byo-item"><span class="byo-name">Chicken Tikka</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:100%"></div></div><span class="byo-pct">40.7%</span></div>
+      <div class="byo-item"><span class="byo-name">1/2 and 1/2 Mains</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:49%"></div></div><span class="byo-pct">20.1%</span></div>
+      <div class="byo-item"><span class="byo-name">Spicy Chili Chicken</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:40%"></div></div><span class="byo-pct">16.1%</span></div>
+      <div class="byo-item"><span class="byo-name">Cauliflower + Potato</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:15%"></div></div><span class="byo-pct">6.1%</span></div>
+      <div class="byo-item"><span class="byo-name">Tandoori Paneer</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:14%"></div></div><span class="byo-pct">5.7%</span></div>
+      <div class="byo-item"><span class="byo-name">Lamb Kebab</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:10%"></div></div><span class="byo-pct">4.1%</span></div>
+    </div>
+    <div class="byo-col"><h3>Extra mains (paid add-on)</h3>
+      <div class="byo-item"><span class="byo-name">Extra Chicken Tikka</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:100%"></div></div><span class="byo-pct">26.3%</span></div>
+      <div class="byo-item"><span class="byo-name">Extra Cauliflower + Potato</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:76%"></div></div><span class="byo-pct">20.0%</span></div>
+      <div class="byo-item"><span class="byo-name">Extra Roasted Vegetables</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:73%"></div></div><span class="byo-pct">19.1%</span></div>
+      <div class="byo-item"><span class="byo-name">Extra Organic Tandoori Paneer</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:51%"></div></div><span class="byo-pct">13.3%</span></div>
+      <div class="byo-item"><span class="byo-name">Extra Spicy Chili Chicken</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:45%"></div></div><span class="byo-pct">11.9%</span></div>
+    </div>
+  </div>
+  <div style="font-size:11px;font-weight:700;color:#381d7c;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Full build composition — Online only (App + 3PD)</div>
+  <div class="gr3">
+    <div class="byo-col"><h3>Base</h3>
+      <div class="byo-item"><span class="byo-name">Basmati Rice</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:100%"></div></div><span class="byo-pct">12.1%</span></div>
+      <div class="byo-item"><span class="byo-name">1/2 Lemon Turmeric Rice</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:94%"></div></div><span class="byo-pct">11.4%</span></div>
+      <div class="byo-item"><span class="byo-name">1/2 Saxygreens</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:93%"></div></div><span class="byo-pct">11.3%</span></div>
+      <div class="byo-item"><span class="byo-name">Lemon Turmeric Rice</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:80%"></div></div><span class="byo-pct">9.7%</span></div>
+      <div class="byo-item"><span class="byo-name">1/2 Basmati Rice</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:75%"></div></div><span class="byo-pct">9.1%</span></div>
+    </div>
+    <div class="byo-col"><h3>Sauce</h3>
+      <div class="byo-item"><span class="byo-name">Tomato Garlic (Butter Masala)</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:100%"></div></div><span class="byo-pct">29.2%</span></div>
+      <div class="byo-item"><span class="byo-name">Tikka Masala</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:88%"></div></div><span class="byo-pct">25.6%</span></div>
+      <div class="byo-item"><span class="byo-name">Coconut Ginger</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:57%"></div></div><span class="byo-pct">16.6%</span></div>
+      <div class="byo-item"><span class="byo-name">Tamarind Chili (Spicy)</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:44%"></div></div><span class="byo-pct">12.8%</span></div>
+      <div class="byo-item"><span class="byo-name">Skip Sauce</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:31%"></div></div><span class="byo-pct">9.0%</span></div>
+    </div>
+    <div class="byo-col"><h3>Veggie</h3>
+      <div class="byo-item"><span class="byo-name">Spiced Chickpeas</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:100%"></div></div><span class="byo-pct">53.2%</span></div>
+      <div class="byo-item"><span class="byo-name">Sauteed Spinach</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:73%"></div></div><span class="byo-pct">38.8%</span></div>
+      <div class="byo-item"><span class="byo-name">Skip Vegetable</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:15%"></div></div><span class="byo-pct">8.0%</span></div>
+    </div>
+  </div>
+  <div class="gr22">
+    <div class="byo-col"><h3>Toppings</h3>
+      <div class="byo-item"><span class="byo-name">Pickled Onions</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:100%"></div></div><span class="byo-pct">11.6%</span></div>
+      <div class="byo-item"><span class="byo-name">Indian Street Corn</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:100%"></div></div><span class="byo-pct">11.6%</span></div>
+      <div class="byo-item"><span class="byo-name">Cucumber Cubes</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:99%"></div></div><span class="byo-pct">11.5%</span></div>
+      <div class="byo-item"><span class="byo-name">Roasted Tomatoes</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:95%"></div></div><span class="byo-pct">11.0%</span></div>
+      <div class="byo-item"><span class="byo-name">Crispy Chickpea Noodles</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:91%"></div></div><span class="byo-pct">10.6%</span></div>
+    </div>
+    <div class="byo-col"><h3>Chutney + Dressing</h3>
+      <div class="byo-item"><span class="byo-name">Mint Cilantro Chutney</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:100%"></div></div><span class="byo-pct">23.1%</span></div>
+      <div class="byo-item"><span class="byo-name">Toasted Cumin Yogurt</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:95%"></div></div><span class="byo-pct">22.0%</span></div>
+      <div class="byo-item"><span class="byo-name">Ginger Tamarind Chutney</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:57%"></div></div><span class="byo-pct">13.1%</span></div>
+      <div class="byo-item"><span class="byo-name">Mango Habanero</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:51%"></div></div><span class="byo-pct">11.9%</span></div>
+      <div class="byo-item"><span class="byo-name">Cilantro Lime Dressing</span><div class="byo-bar-bg"><div class="byo-bar-fill" style="width:45%"></div></div><span class="byo-pct">10.5%</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PAYMENT SOURCE ===== -->
+<div id="p-payment" style="display:none">
+  <div class="krow k3">
+    <div class="kc a"><div class="kl">Alt Payment</div><div class="kv">$298,443</div><div class="ks">5,547 payments · 50.0% of revenue</div></div>
+    <div class="kc b"><div class="kl">Card</div><div class="kv">$298,034</div><div class="ks">12,962 payments · 50.0% of revenue</div></div>
+    <div class="kc p"><div class="kl">Gift Card</div><div class="kv">$117</div><div class="ks">4 payments · 0.0% of revenue</div></div>
+  </div>
+  <div class="gr22">
+    <div class="cc"><h3>Payment mix by location</h3><div style="position:relative;height:240px"><canvas id="c6"></canvas></div></div>
+    <div class="cc"><h3>Top payment sources</h3><div style="position:relative;height:240px"><canvas id="c7"></canvas></div></div>
+  </div>
+  <div class="tw">
+    <div class="th2"><h3>Payment sources</h3><input class="srch" placeholder="Search..."/></div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Source name</th><th>Category</th><th>Payments</th><th>Total Revenue</th><th>Avg Ticket</th><th>% of Mix</th><th>Share</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:700">CREDIT</td><td style="color:#7c3aed;font-size:10px;font-weight:700">CARD</td><td>12,962</td><td>$298,034</td><td>$22.99</td><td>50.0%</td><td><div class="bb" style="min-width:80px"><div class="bf" style="width:100%"></div></div></td></tr>
+        <tr><td style="font-weight:600">Ez Cater</td><td style="color:#f5a623;font-size:10px;font-weight:700">ALT_PAYMENT</td><td>178</td><td>$71,535</td><td>$401.88</td><td>12.0%</td><td><div class="bb" style="min-width:80px"><div class="bf" style="width:24%"></div></div></td></tr>
+        <tr><td style="font-weight:600">Stream x DoorDash</td><td style="color:#ef7ccf;font-size:10px;font-weight:700">ALT_PAYMENT</td><td>2,048</td><td>$64,187</td><td>$31.34</td><td>10.8%</td><td><div class="bb" style="min-width:80px"><div class="bf" style="width:21%"></div></div></td></tr>
+        <tr><td style="font-weight:600">Stream x Uber</td><td style="color:#ef7ccf;font-size:10px;font-weight:700">ALT_PAYMENT</td><td>1,506</td><td>$49,767</td><td>$33.05</td><td>8.3%</td><td><div class="bb" style="min-width:80px"><div class="bf" style="width:16%"></div></div></td></tr>
+        <tr><td style="font-weight:600">Open App</td><td style="color:#7cb9ef;font-size:10px;font-weight:700">ALT_PAYMENT</td><td>1,642</td><td>$37,825</td><td>$23.04</td><td>6.3%</td><td><div class="bb" style="min-width:80px"><div class="bf" style="width:13%"></div></div></td></tr>
+        <tr><td style="font-weight:600">Fooda</td><td style="color:#2ec4b6;font-size:10px;font-weight:700">ALT_PAYMENT</td><td>27</td><td>$18,306</td><td>$678.01</td><td>3.1%</td><td><div class="bb" style="min-width:80px"><div class="bf" style="width:6%"></div></div></td></tr>
+        <tr><td style="font-weight:600">Aramark</td><td style="color:#2ec4b6;font-size:10px;font-weight:700">ALT_PAYMENT</td><td>14</td><td>$16,975</td><td>$1,212.49</td><td>2.8%</td><td><div class="bb" style="min-width:80px"><div class="bf" style="width:5%"></div></div></td></tr>
+        <tr><td style="font-weight:600">Stream x GrubHub</td><td style="color:#ef7ccf;font-size:10px;font-weight:700">ALT_PAYMENT</td><td>93</td><td>$3,409</td><td>$36.66</td><td>0.6%</td><td><div class="bb" style="min-width:80px"><div class="bf" style="width:1%"></div></div></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- ===== RENAMES AUDIT ===== -->
+<div id="p-renames" style="display:none">
+  <div class="info-banner blue"><i class="ti ti-info-circle" aria-hidden="true"></i>23 canonical item groups with multiple historical display names. These items consolidate cleanly under one canonical name in all dashboard rollups.</div>
+  <div class="tw">
+    <div class="th2"><h3>Items with multiple display names</h3><input class="srch" placeholder="Search items..."/></div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Canonical name (latest)</th><th>Category</th><th>All historical names</th><th>Lifetime Qty</th><th>Lifetime $</th><th>Locations</th><th>First seen</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:700">Tandoori Tasting Bundle</td><td style="font-size:10px;color:#6b7280">excluded</td><td style="font-size:10px"><strong>Tandoori Tasting Bundle</strong> · <span style="text-decoration:line-through;color:#9ca3af">Tandoori Tasting Platter</span></td><td>336</td><td>$56,907</td><td>5</td><td>2025-07-28</td></tr>
+        <tr><td style="font-weight:700">Chicken Tikka + Avocado Salad</td><td style="font-size:10px;color:#6b7280">chef_bowl</td><td style="font-size:10px"><strong>Chicken Tikka + Avocado Salad</strong> · <span style="text-decoration:line-through;color:#9ca3af">Chicken Tikka + Avocado Salad - Club Feast</span></td><td>7,989</td><td>$113,645</td><td>5</td><td>2025-07-28</td></tr>
+        <tr><td style="font-weight:700">Spicy Chili Chicken Bowl</td><td style="font-size:10px;color:#6b7280">chef_bowl</td><td style="font-size:10px"><strong>Spicy Chili Chicken Bowl</strong> · <span style="text-decoration:line-through;color:#9ca3af">Spicy Chili Chicken Bowl - Club Feast</span></td><td>28,575</td><td>$383,017</td><td>5</td><td>2025-07-28</td></tr>
+        <tr><td style="font-weight:700">Grain Bowl</td><td style="font-size:10px;color:#6b7280">byo_bowl</td><td style="font-size:10px"><strong>Grain Bowl</strong> · <span style="text-decoration:line-through;color:#9ca3af">Grain Bowl - Club Feast</span></td><td>54,567</td><td>$700,689</td><td>5</td><td>2025-07-28</td></tr>
+        <tr><td style="font-weight:700">BYO Indian Burrito</td><td style="font-size:10px;color:#6b7280">byo_burrito</td><td style="font-size:10px"><strong>BYO Indian Burrito</strong> · <span style="text-decoration:line-through;color:#9ca3af">Burrito</span></td><td>2,554</td><td>$33,321</td><td>5</td><td>2025-07-28</td></tr>
+        <tr><td style="font-weight:700">Kids BYO</td><td style="font-size:10px;color:#6b7280">kids_meal</td><td style="font-size:10px"><strong>Kids BYO</strong> · <span style="text-decoration:line-through;color:#9ca3af">Kids Meal</span></td><td>6,953</td><td>$43,477</td><td>5</td><td>2025-07-28</td></tr>
+        <tr><td style="font-weight:700">Masala Chai Cookies</td><td style="font-size:10px;color:#6b7280">catering_item</td><td style="font-size:10px"><strong>Masala Chai Cookies</strong> · <span style="text-decoration:line-through;color:#9ca3af">Fooda Aramark Eurest Masala Chai Cookies</span></td><td>8,406</td><td>$19,053</td><td>5</td><td>2025-07-28</td></tr>
+        <tr><td style="font-weight:700">Sweet Cardamom Yogurt</td><td style="font-size:10px;color:#6b7280">sweet</td><td style="font-size:10px"><strong>Sweet Cardamom Yogurt</strong> · <span style="text-decoration:line-through;color:#9ca3af">Indian Yogurt</span></td><td>3,126</td><td>$10,525</td><td>5</td><td>2025-07-28</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- ===== NEEDS REVIEW ===== -->
+<div id="p-needs" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div class="info-banner yellow" style="flex:1;margin:0"><i class="ti ti-alert-triangle" aria-hidden="true"></i><strong>27 orders need a channel decision</strong> — conflicting partner payment tags or mis-keyed dining options.</div>
+    <button style="padding:6px 16px;border-radius:8px;border:none;background:#381d7c;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Apply overrides (~30s)</button>
+  </div>
+  <div class="nr-card">
+    <div><div class="nr-tag">CATERING-PAYMENT-WITH-NON-CATERING-DINING-OPTION</div><div class="nr-main">Mosaic · 2026-06-02 · $224.25</div><div class="nr-sub">channel: In Store · dining: Fooda · tags: Ez Cater</div><div class="nr-hint"><i class="ti ti-bulb" aria-hidden="true"></i> Set dining_option to "Ez Cater" (matches the alt_payment)</div></div>
+    <div style="display:flex;align-items:center;gap:8px"><select class="fb-sel" style="width:120px"><option>Dine In</option><option>Catering</option><option>Delivery</option></select><button class="set-btn">Set</button></div>
+  </div>
+  <div class="nr-card">
+    <div><div class="nr-tag">CATERING-PAYMENT-WITH-NON-CATERING-DINING-OPTION</div><div class="nr-main">Rockville · 2026-06-12 · $5.98</div><div class="nr-sub">channel: In Store · dining: Dine In · tags: Ez Cater</div><div class="nr-hint"><i class="ti ti-bulb" aria-hidden="true"></i> Set dining_option to "Ez Cater" (matches the alt_payment)</div></div>
+    <div style="display:flex;align-items:center;gap:8px"><select class="fb-sel" style="width:120px"><option>Dine In</option><option>Catering</option><option>Delivery</option></select><button class="set-btn">Set</button></div>
+  </div>
+  <div class="nr-card">
+    <div><div class="nr-tag">CATERING-PAYMENT-WITH-NON-CATERING-DINING-OPTION</div><div class="nr-main">NL · 2026-05-18 · $24.90</div><div class="nr-sub">channel: In Store · dining: Dine In · tags: Ez Cater</div><div class="nr-hint"><i class="ti ti-bulb" aria-hidden="true"></i> Set dining_option to "Ez Cater" (matches the alt_payment)</div></div>
+    <div style="display:flex;align-items:center;gap:8px"><select class="fb-sel" style="width:120px"><option>Dine In</option><option>Catering</option><option>Delivery</option></select><button class="set-btn">Set</button></div>
+  </div>
+  <div style="text-align:center;padding:10px;color:#6b7280;font-size:11px">Showing 3 of 27 · <span style="color:#7c3aed;cursor:pointer;font-weight:700">Load all</span></div>
+</div>
+
+<!-- ===== MENU ENGINEERING ===== -->
+<div id="p-me" style="display:none">
+  <div class="me-quad-grid">
+    <div class="mqc star"><div class="mql">Stars</div><div class="mqn">14</div><div class="mqr">high mix + high margin</div></div>
+    <div class="mqc plow"><div class="mql">Plow Horses</div><div class="mqn">18</div><div class="mqr">high mix + low margin</div></div>
+    <div class="mqc puzzle"><div class="mql">Puzzles</div><div class="mqn">32</div><div class="mqr">low mix + high margin</div></div>
+    <div class="mqc dog"><div class="mql">Dogs</div><div class="mqn">27</div><div class="mqr">low mix + low margin</div></div>
+  </div>
+  <div class="info-banner purple"><i class="ti ti-info-circle" aria-hidden="true"></i><strong>Avg margin threshold:</strong> 75.42% &nbsp;·&nbsp; <strong>Menu mix threshold:</strong> 0.761% ((1/91) × 0.7) &nbsp;·&nbsp; Overall inherits from channel masters</div>
+  <div class="gr22">
+    <div class="cc"><h3>Revenue by ME quadrant</h3><div style="position:relative;height:200px"><canvas id="c8"></canvas></div></div>
+    <div class="cc"><h3>ME scatter — margin % vs qty rank</h3><div style="position:relative;height:220px"><canvas id="c9"></canvas></div></div>
+  </div>
+  <div class="tw">
+    <div class="th2">
+      <h3>ME item detail — P5 blended</h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="srch" placeholder="Search items..." oninput="filterME(this.value)"/>
+        <select class="fb-sel" onchange="filterMEQ(this.value)">
+          <option value="all">All quadrants</option><option value="Star">Stars</option><option value="Plow">Plow Horses</option><option value="Puzzle">Puzzles</option><option value="Dog">Dogs</option>
+        </select>
+      </div>
+    </div>
+    <div style="overflow-x:auto"><table id="meTable">
+      <thead><tr><th>Item</th><th>ME</th><th>Category</th><th>Net Sales</th><th>Qty</th><th>Margin %</th><th>COGS %</th><th>Avg Price</th><th>Avg Cost</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:600">Chicken Tikka Bowl</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>$76,966</td><td>5,626</td><td><div class="bw"><div class="bb"><div class="bf" style="width:76%"></div></div>76.1%</div></td><td>23.9%</td><td>$13.68</td><td>$3.27</td></tr>
+        <tr><td style="font-weight:600">BYO Grain Bowl</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>$70,276</td><td>4,924</td><td><div class="bw"><div class="bb"><div class="bf" style="width:78%"></div></div>78.0%</div></td><td>22.0%</td><td>$14.27</td><td>$3.14</td></tr>
+        <tr><td style="font-weight:600">Spicy Chili Chicken Bowl</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>$37,758</td><td>2,467</td><td><div class="bw"><div class="bb"><div class="bf" style="width:78%"></div></div>78.4%</div></td><td>21.6%</td><td>$15.31</td><td>$3.30</td></tr>
+        <tr><td style="font-weight:600">Paneer Tikka Bowl</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>Entrees</td><td>$26,707</td><td>1,778</td><td><div class="bw"><div class="bb"><div class="bf" style="width:75%"></div></div>75.4%</div></td><td>24.6%</td><td>$15.02</td><td>$3.70</td></tr>
+        <tr><td style="font-weight:600">Butter Chicken</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>$18,639</td><td>1,177</td><td><div class="bw"><div class="bb"><div class="bf" style="width:76%"></div></div>75.5%</div></td><td>24.5%</td><td>$15.84</td><td>$3.88</td></tr>
+        <tr><td style="font-weight:600">Mango Lassi</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>NA Drinks</td><td>$13,845</td><td>2,448</td><td><div class="bw"><div class="bb"><div class="bf" style="width:75%"></div></div>74.7%</div></td><td>25.3%</td><td>$5.66</td><td>$1.43</td></tr>
+        <tr><td style="font-weight:600">Spiced Cauli + Quinoa Bowl</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>$8,074</td><td>600</td><td><div class="bw"><div class="bb"><div class="bf" style="width:88%"></div></div>88.1%</div></td><td>11.9%</td><td>$13.46</td><td>$1.59</td></tr>
+        <tr><td style="font-weight:600">Masala Chai Cookies</td><td><span class="mb mb-Star">Star</span></td><td>Sweets</td><td>$1,812</td><td>688</td><td><div class="bw"><div class="bb"><div class="bf" style="width:87%"></div></div>86.7%</div></td><td>13.3%</td><td>$2.63</td><td>$0.35</td></tr>
+        <tr><td style="font-weight:600">Garlic Naan</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>Sides</td><td>$9,397</td><td>2,623</td><td><div class="bw"><div class="bb"><div class="bf" style="width:73%"></div></div>72.8%</div></td><td>27.2%</td><td>$3.58</td><td>$0.97</td></tr>
+        <tr><td style="font-weight:600">Side of Veggie</td><td><span class="mb mb-Puzzle">Puzzle</span></td><td>Sides</td><td>$550</td><td>98</td><td><div class="bw"><div class="bb"><div class="bf" style="width:96%"></div></div>96.1%</div></td><td>3.9%</td><td>$5.62</td><td>$0.22</td></tr>
+        <tr><td style="font-weight:600">Iced Oat Masala Chai</td><td><span class="mb mb-Dog">Dog</span></td><td>NA Drinks</td><td>$1,715</td><td>287</td><td><div class="bw"><div class="bb"><div class="bf" style="width:65%"></div></div>65.4%</div></td><td>34.6%</td><td>$5.98</td><td>$2.07</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- ===== CHANNELS ===== -->
+<div id="p-channels" style="display:none">
+  <div class="krow">
+    <div class="kc a"><div class="kl">In-House</div><div class="kv">$175K</div><div class="ks">42% of revenue</div><div class="kd dn">▼ 5.2% vs P4</div></div>
+    <div class="kc o"><div class="kl">Catering</div><div class="kv">$100K</div><div class="ks">24% of revenue</div><div class="kd up">▲ 4.2% vs P4</div></div>
+    <div class="kc pk"><div class="kl">3PD Delivery</div><div class="kv">$75K</div><div class="ks">18% of revenue</div><div class="kd dn">▼ 2.1% vs P4</div></div>
+    <div class="kc b"><div class="kl">App</div><div class="kv">$42K</div><div class="ks">10% of revenue</div><div class="kd up">▲ 8.4% vs P4</div></div>
+    <div class="kc t"><div class="kl">Offsites</div><div class="kv">$25K</div><div class="ks">6% of revenue</div><div class="kd up">▲ 2.1% vs P4</div></div>
+  </div>
+  <div class="gr3">
+    <div class="cc"><h3>In-House by category</h3><div style="position:relative;height:180px"><canvas id="c10"></canvas></div></div>
+    <div class="cc"><h3>3PD by category</h3><div style="position:relative;height:180px"><canvas id="c11"></canvas></div></div>
+    <div class="cc"><h3>App by category</h3><div style="position:relative;height:180px"><canvas id="c12"></canvas></div></div>
+  </div>
+  <div class="tw">
+    <div class="th2"><h3>Item-level channel breakdown</h3><input class="srch" placeholder="Search items..."/></div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Item</th><th>ME</th><th>Total Sales</th><th>In-House $</th><th>3PD $</th><th>App $</th><th>Loyalty $</th><th>Split</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:600">Chicken Tikka Bowl</td><td><span class="mb mb-Star">Star</span></td><td>$76,966</td><td>$39,150</td><td>$22,773</td><td>$10,204</td><td>$4,839</td><td><div style="display:flex;height:8px;border-radius:4px;overflow:hidden;width:100px"><div style="width:51%;background:#9f7cef"></div><div style="width:29%;background:#ef7ccf"></div><div style="width:13%;background:#7cb9ef"></div><div style="width:7%;background:#2ec4b6"></div></div></td></tr>
+        <tr><td style="font-weight:600">BYO Grain Bowl</td><td><span class="mb mb-Star">Star</span></td><td>$70,276</td><td>$48,599</td><td>$11,448</td><td>$7,290</td><td>$2,939</td><td><div style="display:flex;height:8px;border-radius:4px;overflow:hidden;width:100px"><div style="width:69%;background:#9f7cef"></div><div style="width:16%;background:#ef7ccf"></div><div style="width:10%;background:#7cb9ef"></div><div style="width:5%;background:#2ec4b6"></div></div></td></tr>
+        <tr><td style="font-weight:600">Mango Lassi</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>$13,845</td><td>$10,059</td><td>$2,140</td><td>$1,204</td><td>$442</td><td><div style="display:flex;height:8px;border-radius:4px;overflow:hidden;width:100px"><div style="width:73%;background:#9f7cef"></div><div style="width:15%;background:#ef7ccf"></div><div style="width:9%;background:#7cb9ef"></div><div style="width:3%;background:#2ec4b6"></div></div></td></tr>
+        <tr><td style="font-weight:600">Garlic Naan</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>$9,397</td><td>$5,775</td><td>$2,100</td><td>$1,290</td><td>$232</td><td><div style="display:flex;height:8px;border-radius:4px;overflow:hidden;width:100px"><div style="width:61%;background:#9f7cef"></div><div style="width:22%;background:#ef7ccf"></div><div style="width:14%;background:#7cb9ef"></div><div style="width:3%;background:#2ec4b6"></div></div></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- ===== CUSTOMER RETENTION ===== -->
+<div id="p-bikky" style="display:none">
+  <div class="info-banner blue"><i class="ti ti-info-circle" aria-hidden="true"></i>Bikky retention data · 90-day return and reorder rates. Rates show % of customers who returned or reordered within the period.</div>
+  <div class="krow k4">
+    <div class="kc a"><div class="kl">Avg Return Rate</div><div class="kv">28.4%</div><div class="ks">90-day window</div></div>
+    <div class="kc g"><div class="kl">Avg Reorder Rate</div><div class="kv">14.2%</div><div class="ks">same item reorder</div></div>
+    <div class="kc b"><div class="kl">Top retention item</div><div class="kv-sm">Grain Bowl</div><div class="ks">32.7% return rate</div></div>
+    <div class="kc p"><div class="kl">Lowest retention</div><div class="kv-sm">Harvest Chicken Bowl</div><div class="ks">0.0% return rate</div></div>
+  </div>
+  <div class="tw">
+    <div class="th2"><h3>Item-level retention rates</h3><input class="srch" placeholder="Search items..."/></div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Item</th><th>Category</th><th>Revenue</th><th>Qty Sold</th><th>Guests</th><th>Return Rate</th><th>Reorder Rate</th><th>vs Prior Period</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:600">Grain Bowl</td><td>Entrees</td><td>$39,681</td><td>3,119</td><td>2,254</td><td><span class="rate-tag rh">32.7%</span></td><td><span class="rate-tag rh">24.1%</span></td><td><span class="delta-tag dt-dn">▼ 0.5pp</span></td></tr>
+        <tr><td style="font-weight:600">Spicy Chili Chicken Bowl</td><td>Entrees</td><td>$12,692</td><td>979</td><td>800</td><td><span class="rate-tag rh">27.1%</span></td><td><span class="rate-tag rm">15.8%</span></td><td><span class="delta-tag dt-up">▲ 1.4pp</span></td></tr>
+        <tr><td style="font-weight:600">Mango Lassi</td><td>NA Drinks</td><td>$6,528</td><td>1,340</td><td>920</td><td><span class="rate-tag rm">26.2%</span></td><td><span class="rate-tag rm">16.9%</span></td><td><span class="delta-tag dt-dn">▼ 2.9pp</span></td></tr>
+        <tr><td style="font-weight:600">Butter Chicken Burrito</td><td>Entrees</td><td>$8,378</td><td>694</td><td>573</td><td><span class="rate-tag rm">23.9%</span></td><td><span class="rate-tag rm">12.4%</span></td><td><span class="delta-tag dt-up">▲ 0.3pp</span></td></tr>
+        <tr><td style="font-weight:600">Homemade Juice</td><td>NA Drinks</td><td>$2,215</td><td>720</td><td>564</td><td><span class="rate-tag rm">27.7%</span></td><td><span class="rate-tag rm">16.1%</span></td><td><span class="delta-tag dt-dn">▼ 0.6pp</span></td></tr>
+        <tr><td style="font-weight:600">Mini Samosas</td><td>Sides</td><td>$2,609</td><td>1,074</td><td>814</td><td><span class="rate-tag rm">26.0%</span></td><td><span class="rate-tag rm">15.4%</span></td><td><span class="delta-tag dt-up">▲ 1.1pp</span></td></tr>
+        <tr><td style="font-weight:600">Harvest Chicken Bowl</td><td>Entrees</td><td>$37</td><td>7</td><td>3</td><td><span class="rate-tag rl">0.0%</span></td><td><span class="rate-tag rl">0.0%</span></td><td><span class="delta-tag dt-dn">▼ 33.0pp</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- ===== ALL ITEMS ===== -->
+<div id="p-allitems" style="display:none">
+  <div class="tw">
+    <div class="th2">
+      <h3>All items — full detail · P5 2026 blended</h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="srch" placeholder="Search items..." oninput="filterAI(this.value)"/>
+        <select class="fb-sel" onchange="filterAIQ(this.value)">
+          <option value="all">All quadrants</option><option value="Star">Stars only</option><option value="Plow">Plow Horses</option><option value="Puzzle">Puzzles</option><option value="Dog">Dogs</option>
+        </select>
+        <button onclick="exportCSV()" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(124,58,237,0.2);background:#fff;font-size:11px;font-weight:600;cursor:pointer;color:#7c3aed;font-family:inherit"><i class="ti ti-download" aria-hidden="true"></i> Export CSV</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto"><table id="aiTable">
+      <thead><tr><th onclick="sortAI('name')">Item ↕</th><th>ME</th><th>Category</th><th>Sub-Cat</th><th onclick="sortAI('sales')">Net Sales ↓</th><th onclick="sortAI('qty')">QTY ↕</th><th onclick="sortAI('margin')">Margin % ↕</th><th>COGS %</th><th>Avg Price</th><th>Avg Cost</th><th>Total Margin</th><th>Mix %</th></tr></thead>
+      <tbody id="aiBody">
+        <tr data-me="Star"><td style="font-weight:600">Chicken Tikka Bowl</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>Bowl</td><td>$76,966</td><td>5,626</td><td><div class="bw"><div class="bb"><div class="bf" style="width:76%"></div></div>76.1%</div></td><td>23.9%</td><td>$13.68</td><td>$3.27</td><td>$58,589</td><td>13.8%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">BYO Grain Bowl</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>Bowl</td><td>$70,276</td><td>4,924</td><td><div class="bw"><div class="bb"><div class="bf" style="width:78%"></div></div>78.0%</div></td><td>22.0%</td><td>$14.27</td><td>$3.14</td><td>$54,829</td><td>12.1%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">Spicy Chili Chicken Bowl</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>Bowl</td><td>$37,758</td><td>2,467</td><td><div class="bw"><div class="bb"><div class="bf" style="width:78%"></div></div>78.4%</div></td><td>21.6%</td><td>$15.31</td><td>$3.30</td><td>$29,618</td><td>6.0%</td></tr>
+        <tr data-me="Plow"><td style="font-weight:600">Paneer Tikka Bowl</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>Entrees</td><td>Bowl</td><td>$26,707</td><td>1,778</td><td><div class="bw"><div class="bb"><div class="bf" style="width:75%"></div></div>75.4%</div></td><td>24.6%</td><td>$15.02</td><td>$3.70</td><td>$20,129</td><td>4.4%</td></tr>
+        <tr data-me="Plow"><td style="font-weight:600">Butter Chicken Burrito</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>Entrees</td><td>Burrito</td><td>$17,076</td><td>1,255</td><td><div class="bw"><div class="bb"><div class="bf" style="width:66%"></div></div>65.6%</div></td><td>34.4%</td><td>$13.61</td><td>$4.68</td><td>$11,204</td><td>3.1%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">BYO Greens + Grains Bowl</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>Bowl</td><td>$18,821</td><td>1,252</td><td><div class="bw"><div class="bb"><div class="bf" style="width:76%"></div></div>75.6%</div></td><td>24.4%</td><td>$15.03</td><td>$3.67</td><td>$14,229</td><td>3.1%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">Butter Chicken</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>Plates</td><td>$18,639</td><td>1,177</td><td><div class="bw"><div class="bb"><div class="bf" style="width:76%"></div></div>75.5%</div></td><td>24.5%</td><td>$15.84</td><td>$3.88</td><td>$14,074</td><td>2.9%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">Chicken Tikka Masala</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>Plates</td><td>$12,026</td><td>751</td><td><div class="bw"><div class="bb"><div class="bf" style="width:76%"></div></div>75.7%</div></td><td>24.3%</td><td>$16.01</td><td>$3.90</td><td>$9,098</td><td>1.8%</td></tr>
+        <tr data-me="Plow"><td style="font-weight:600">Mango Lassi</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>NA Drinks</td><td>Lassi</td><td>$13,845</td><td>2,448</td><td><div class="bw"><div class="bb"><div class="bf" style="width:75%"></div></div>74.7%</div></td><td>25.3%</td><td>$5.66</td><td>$1.43</td><td>$10,345</td><td>6.0%</td></tr>
+        <tr data-me="Plow"><td style="font-weight:600">Lamb Kebab Bowl</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>Entrees</td><td>Bowl</td><td>$13,623</td><td>873</td><td><div class="bw"><div class="bb"><div class="bf" style="width:74%"></div></div>73.5%</div></td><td>26.5%</td><td>$15.60</td><td>$4.13</td><td>$10,018</td><td>2.1%</td></tr>
+        <tr data-me="Plow"><td style="font-weight:600">Garlic Naan</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>Sides</td><td>Bread</td><td>$9,397</td><td>2,623</td><td><div class="bw"><div class="bb"><div class="bf" style="width:73%"></div></div>72.8%</div></td><td>27.2%</td><td>$3.58</td><td>$0.97</td><td>$6,843</td><td>6.4%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">Homemade Juice</td><td><span class="mb mb-Star">Star</span></td><td>NA Drinks</td><td>Juice</td><td>$4,034</td><td>1,225</td><td><div class="bw"><div class="bb"><div class="bf" style="width:82%"></div></div>81.9%</div></td><td>18.1%</td><td>$3.29</td><td>$0.60</td><td>$3,303</td><td>3.0%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">Spiced Cauli + Quinoa Bowl</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>Bowl</td><td>$8,074</td><td>600</td><td><div class="bw"><div class="bb"><div class="bf" style="width:88%"></div></div>88.1%</div></td><td>11.9%</td><td>$13.46</td><td>$1.59</td><td>$7,117</td><td>1.5%</td></tr>
+        <tr data-me="Plow"><td style="font-weight:600">Mini Samosas</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>Sides</td><td>Samosa</td><td>$6,182</td><td>2,262</td><td><div class="bw"><div class="bb"><div class="bf" style="width:56%"></div></div>55.6%</div></td><td>44.4%</td><td>$2.73</td><td>$1.21</td><td>$3,439</td><td>5.5%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">Masala Chai Cookies</td><td><span class="mb mb-Star">Star</span></td><td>Sweets</td><td>Cookies</td><td>$1,812</td><td>688</td><td><div class="bw"><div class="bb"><div class="bf" style="width:87%"></div></div>86.7%</div></td><td>13.3%</td><td>$2.63</td><td>$0.35</td><td>$1,571</td><td>1.7%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">Kids Meal</td><td><span class="mb mb-Star">Star</span></td><td>Kids Meal</td><td>Kids</td><td>$4,808</td><td>620</td><td><div class="bw"><div class="bb"><div class="bf" style="width:77%"></div></div>77.4%</div></td><td>22.6%</td><td>$7.75</td><td>$1.75</td><td>$3,723</td><td>1.5%</td></tr>
+        <tr data-me="Star"><td style="font-weight:600">Saag Paneer</td><td><span class="mb mb-Star">Star</span></td><td>Entrees</td><td>Plates</td><td>$6,722</td><td>457</td><td><div class="bw"><div class="bb"><div class="bf" style="width:79%"></div></div>78.7%</div></td><td>21.3%</td><td>$14.71</td><td>$3.13</td><td>$5,293</td><td>1.1%</td></tr>
+        <tr data-me="Dog"><td style="font-weight:600">Iced Oat Masala Chai</td><td><span class="mb mb-Dog">Dog</span></td><td>NA Drinks</td><td>Chai</td><td>$1,715</td><td>287</td><td><div class="bw"><div class="bb"><div class="bf" style="width:65%"></div></div>65.4%</div></td><td>34.6%</td><td>$5.98</td><td>$2.07</td><td>$1,122</td><td>0.7%</td></tr>
+        <tr data-me="Puzzle"><td style="font-weight:600">Side of Veggie</td><td><span class="mb mb-Puzzle">Puzzle</span></td><td>Sides</td><td>Veggie</td><td>$550</td><td>98</td><td><div class="bw"><div class="bb"><div class="bf" style="width:96%"></div></div>96.1%</div></td><td>3.9%</td><td>$5.62</td><td>$0.22</td><td>$529</td><td>0.2%</td></tr>
+        <tr data-me="Plow"><td style="font-weight:600">BYO Salad Bowl</td><td><span class="mb mb-Plow">Plow Horse</span></td><td>Entrees</td><td>Bowl</td><td>$4,966</td><td>326</td><td><div class="bw"><div class="bb"><div class="bf" style="width:74%"></div></div>74.4%</div></td><td>25.6%</td><td>$15.23</td><td>$3.91</td><td>$3,692</td><td>0.8%</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+</div><!-- end container -->
+
+<script>
+var PANELS=['overview','itemmix','loccompare','chanmenu','byo','payment','renames','needs','me','channels','bikky','allitems'];
+var charts={};
+
+function swt(id,btn){
+  PANELS.forEach(function(p){var el=document.getElementById('p-'+p);if(el)el.style.display=(p===id?'block':'none');});
+  document.querySelectorAll('.tb').forEach(function(b){b.classList.remove('on');});
+  btn.classList.add('on');
+  if(id==='overview')initOverview();
+  if(id==='payment')initPayment();
+  if(id==='me')initME();
+  if(id==='channels')initChannels();
+}
+function tog(id){
+  var menus=['drDm','drMm'];
+  menus.forEach(function(m){if(m!==id+'m')document.getElementById(m).classList.remove('open');});
+  document.getElementById(id+'m').classList.toggle('open');
+}
+document.addEventListener('click',function(e){if(!e.target.closest('.drw'))document.querySelectorAll('.drm').forEach(function(m){m.classList.remove('open');});});
+function sd(el,name){document.querySelectorAll('#drDm .dr-it').forEach(function(i){i.classList.remove('on');});el.classList.add('on');document.getElementById('dlbl').textContent=name;document.getElementById('drDm').classList.remove('open');}
+function ac(){var f=document.getElementById('cF').value,t=document.getElementById('cT').value;if(f&&t){document.getElementById('dlbl').textContent=f+' → '+t;document.getElementById('drDm').classList.remove('open');}}
+function sm(el,v,label){document.querySelectorAll('#drMm .dr-it').forEach(function(i){i.classList.remove('on');});el.classList.add('on');document.getElementById('mlbl').textContent=label;document.getElementById('drMm').classList.remove('open');}
+function sch(btn,cls){document.querySelectorAll('.chp .cp').forEach(function(b){b.className='cp';});btn.classList.add('cp','on',cls);}
+function stgl(btn){var g=btn.parentNode;g.querySelectorAll('.tgl').forEach(function(b){b.classList.remove('on');});btn.classList.add('on');}
+function tg(name,row){var rows=row.parentNode.querySelectorAll('.grp-'+name);var cv=row.querySelector('.cv');var open=cv&&cv.style.transform==='rotate(90deg)';if(cv)cv.style.transform=open?'rotate(0deg)':'rotate(90deg)';rows.forEach(function(r){r.style.display=open?'none':'';});}
+function filterIM(q){document.querySelectorAll('#imBody tr:not(.grp-hdr)').forEach(function(r){r.style.display=(!q||r.textContent.toLowerCase().includes(q.toLowerCase()))?'':'none';});}
+function filterAI(q){document.querySelectorAll('#aiBody tr').forEach(function(r){r.style.display=(!q||r.textContent.toLowerCase().includes(q.toLowerCase()))?'':'none';});}
+function filterAIQ(q){document.querySelectorAll('#aiBody tr').forEach(function(r){r.style.display=(q==='all'||r.dataset.me===q)?'':'none';});}
+function filterME(q){document.querySelectorAll('#meTable tbody tr').forEach(function(r){r.style.display=(!q||r.textContent.toLowerCase().includes(q.toLowerCase()))?'':'none';});}
+function filterMEQ(q){document.querySelectorAll('#meTable tbody tr').forEach(function(r){var b=r.querySelector('.mb');r.style.display=(q==='all'||(b&&b.className.includes(q)))?'':'none';});}
+function exportCSV(){alert('Export CSV — wire to API in Phase 2');}
+function sortAI(col){}
+
+var fmtK=function(v){return '$'+(v/1000).toFixed(0)+'K'};
+var catOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{font:{size:9}}},y:{ticks:{callback:fmtK,font:{size:9}},grid:{color:'#f3f4f6'}}}};
+
+function initOverview(){
+  if(charts.c1)return;
+  charts.c1=new Chart(document.getElementById('c1'),{type:'bar',data:{labels:['W1 May 6','W2 May 13','W3 May 20','W4 May 27'],datasets:[{type:'bar',label:'Revenue',data:[98000,112000,108000,99000],backgroundColor:'#c4b5fd',borderRadius:4,yAxisID:'y'},{type:'line',label:'Qty',data:[9800,10900,10500,9600],borderColor:'#f5a623',backgroundColor:'transparent',borderWidth:2,tension:0.4,yAxisID:'y2',pointRadius:4,pointBackgroundColor:'#f5a623'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:fmtK,font:{size:9}},grid:{color:'#f3f4f6'}},y2:{position:'right',ticks:{font:{size:9}},grid:{display:false}}}}});
+  charts.c2=new Chart(document.getElementById('c2'),{type:'doughnut',data:{labels:['In-House','Catering','3PD','App','Offsites'],datasets:[{data:[42,24,18,10,6],backgroundColor:['#9f7cef','#f5a623','#ef7ccf','#7cb9ef','#2ec4b6'],borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{display:false}}}});
+  charts.c3=new Chart(document.getElementById('c3'),{type:'bar',data:{labels:['Chicken Tikka Bowl','BYO Grain Bowl','Spicy Chili Bowl','Paneer Tikka Bowl','Butter Chicken','BYO Greens+Grains','Mango Lassi','Lamb Kebab Bowl'],datasets:[{data:[76966,70276,37758,26707,18639,18821,13845,13623],backgroundColor:'#9f7cef',borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{callback:fmtK,font:{size:9}},grid:{color:'#f3f4f6'}},y:{ticks:{font:{size:9}}}}}});
+  charts.c4=new Chart(document.getElementById('c4'),{type:'bar',data:{labels:['Entrees','NA Drinks','Sides','Burritos','Sweets','Kids','Alc'],datasets:[{data:[302000,39000,29000,21000,8200,4800,3200],backgroundColor:'#9f7cef',borderRadius:4}]},options:Object.assign({},catOpts,{scales:{x:{ticks:{font:{size:9}}},y:{ticks:{callback:fmtK,font:{size:9}},grid:{color:'#f3f4f6'}}}})});
+}
+function initPayment(){
+  if(charts.c6)return;
+  charts.c6=new Chart(document.getElementById('c6'),{type:'bar',data:{labels:['Ballpark','MVT','Mosaic','NL','Rockville'],datasets:[{label:'Card',data:[42000,55000,38000,41000,35000],backgroundColor:'#7cb9ef'},{label:'Alt Payment',data:[28000,38000,24000,29000,22000],backgroundColor:'#ef7ccf'},{label:'Cash',data:[4000,5000,3200,4200,3400],backgroundColor:'#9f7cef'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:9},boxWidth:10}}},scales:{x:{stacked:true,ticks:{font:{size:9}}},y:{stacked:true,ticks:{callback:fmtK,font:{size:9}},grid:{color:'#f3f4f6'}}}}});
+  charts.c7=new Chart(document.getElementById('c7'),{type:'bar',data:{labels:['Credit','Ez Cater','Stream x DoorDash','Stream x Uber','Open App','Fooda','Aramark','Eurest'],datasets:[{data:[298034,71535,64187,49767,37825,18306,16975,13401],backgroundColor:'#ef7ccf',borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{callback:fmtK,font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
+}
+function initME(){
+  if(charts.c8)return;
+  charts.c8=new Chart(document.getElementById('c8'),{type:'doughnut',data:{labels:['Stars $217K','Plow Horses $124K','Puzzles $62K','Dogs $14K'],datasets:[{data:[217000,124000,62000,14000],backgroundColor:['#6ee7b7','#9f7cef','#7cb9ef','#ef7c7c'],borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'right',labels:{font:{size:9},boxWidth:10}}}}});
+  charts.c9=new Chart(document.getElementById('c9'),{type:'bubble',data:{datasets:[{label:'Stars',data:[{x:75,y:80,r:18},{x:72,y:82,r:16},{x:68,y:78,r:10},{x:60,y:88,r:7},{x:62,y:82,r:5}],backgroundColor:'rgba(110,231,183,0.7)',borderColor:'#16a34a'},{label:'Plow Horses',data:[{x:72,y:65,r:12},{x:68,y:62,r:8},{x:65,y:58,r:9},{x:70,y:68,r:10}],backgroundColor:'rgba(159,124,239,0.7)',borderColor:'#7c3aed'},{label:'Puzzles',data:[{x:30,y:86,r:5},{x:28,y:84,r:4}],backgroundColor:'rgba(124,185,239,0.7)',borderColor:'#1e40af'},{label:'Dogs',data:[{x:30,y:55,r:4},{x:25,y:50,r:3}],backgroundColor:'rgba(239,124,124,0.7)',borderColor:'#dc2626'}]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:20},plugins:{legend:{position:'top',labels:{font:{size:9},boxWidth:10}}},scales:{x:{min:10,max:110,title:{display:true,text:'Menu Mix rank',font:{size:9}},ticks:{font:{size:9}}},y:{min:25,max:110,title:{display:true,text:'Margin %',font:{size:9}},ticks:{font:{size:9}}}}}});
+}
+function initChannels(){
+  if(charts.c10)return;
+  charts.c10=new Chart(document.getElementById('c10'),{type:'bar',data:{labels:['Entrees','NA Drinks','Sides','Sweets','Kids'],datasets:[{data:[140000,20000,18000,3000,2000],backgroundColor:'#9f7cef',borderRadius:3}]},options:catOpts});
+  charts.c11=new Chart(document.getElementById('c11'),{type:'bar',data:{labels:['Entrees','NA Drinks','Sides','Sweets'],datasets:[{data:[62000,9000,6000,1500],backgroundColor:'#ef7ccf',borderRadius:3}]},options:catOpts});
+  charts.c12=new Chart(document.getElementById('c12'),{type:'bar',data:{labels:['Entrees','NA Drinks','Sides','Sweets'],datasets:[{data:[32000,7000,4000,1000],backgroundColor:'#7cb9ef',borderRadius:3}]},options:catOpts});
+}
+function initChannel5(){
+  if(charts.c5)return;
+  charts.c5=new Chart(document.getElementById('c5'),{type:'bar',data:{labels:['Food - In House','Delivery','APP','Drinks - In House','Catering','Catering - 3PD'],datasets:[{data:[210389,85311,81964,59028,33860,28378],backgroundColor:['#9f7cef','#ef7ccf','#7cb9ef','#f5a623','#2ec4b6','#6ee7b7'],borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{callback:fmtK,font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
+}
+
+window.addEventListener('load',function(){
+  initOverview();
+  document.querySelector('[onclick*="chanmenu"]').addEventListener('click',function(){setTimeout(initChannel5,100);});
+});
+</script>
+</body>
+</html>
