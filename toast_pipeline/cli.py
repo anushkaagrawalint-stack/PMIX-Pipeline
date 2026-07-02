@@ -605,6 +605,46 @@ def cmd_load_r365_item_cost(args: argparse.Namespace) -> None:
     conn.close()
 
 
+_NAME_CONSOLIDATIONS = [
+    # Retail match merges (vendor-prefix → canonical retail name)
+    ("Fooda Chicken Tikka Masala",        "Chicken Tikka Masala"),
+    ("Cureate Spicy Chili Chicken Bowl",  "Spicy Chili Chicken Bowl"),
+    ("Fooda Mango Lassi",                 "Mango Lassi"),
+    ("Eurest Mango Lassi",                "Mango Lassi"),
+    ("HUNGRY BYO Chicken Tikka Bowl",     "Chicken Tikka Bowl"),
+    ("Sharebite Chicken Tikka Bowl",      "Chicken Tikka Bowl"),
+    ("HUNGRY Masala Chai Cookies",        "Masala Chai Cookies"),
+    ("Sharebite Spicy Chili Chicken Bowl","Spicy Chili Chicken Bowl"),
+    # Sharebite Cauli must go directly to the final renamed value
+    ("Sharebite Cauliflower + Quinoa Bowl","Spiced Cauli + Quinoa Bowl"),
+    # Short-name renames (run after retail merges so Cauli chain resolves correctly)
+    ("Grain Bowl",              "BYO Grain Bowl"),
+    ("Greens + Grains Bowl",    "BYO Greens + Grains Bowl"),
+    ("Salad Bowl",              "BYO Salad Bowl"),
+    ("Cauliflower + Quinoa",    "Spiced Cauli + Quinoa Bowl"),
+    ("Cauliflower + Quinoa Bowl","Spiced Cauli + Quinoa Bowl"),
+    ("Kids BYO",                "Kids Meal"),
+]
+
+
+def cmd_consolidate_names(args: argparse.Namespace) -> None:
+    conn = db.connect()
+    total = 0
+    with conn.cursor() as cur:
+        for raw_name, canonical in _NAME_CONSOLIDATIONS:
+            cur.execute(
+                "UPDATE public.fact_order_lines SET canonical_name = %s WHERE canonical_name = %s",
+                (canonical, raw_name),
+            )
+            n = cur.rowcount
+            if n:
+                log.info("consolidate-names: '%s' → '%s' (%d rows)", raw_name, canonical, n)
+            total += n
+    conn.commit()
+    conn.close()
+    log.info("consolidate-names: done — %d rows updated", total)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="toast_pipeline")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -641,6 +681,9 @@ def main() -> None:
     sub.add_parser("r365-item-cost",
                    help="load all P*ItemCost.xlsx from Data/R365Data/ItemCost/ into analytics.r365_item_cost"
                    ).set_defaults(func=cmd_load_r365_item_cost)
+    sub.add_parser("consolidate-names",
+                   help="apply approved name consolidations directly to public.fact_order_lines.canonical_name"
+                   ).set_defaults(func=cmd_consolidate_names)
 
     args = p.parse_args()
     args.func(args)
