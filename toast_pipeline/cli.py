@@ -100,6 +100,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         db.close_pull_run(conn, run_id, "success", fetched, landed)
         log.info("run %d complete: fetched=%d landed=%d", run_id, fetched, landed)
         cmd_validate(args)
+        cmd_consolidate_names(args)
     except Exception as e:
         db.close_pull_run(conn, run_id, "failed", fetched, landed, error=str(e))
         raise
@@ -154,6 +155,7 @@ def cmd_reparse(args: argparse.Namespace) -> None:
     conn.close()
     if total and getattr(args, "merge", False):
         cmd_validate(args)
+        cmd_consolidate_names(args)
 
 
 def cmd_merge(args: argparse.Namespace) -> None:
@@ -164,6 +166,7 @@ def cmd_merge(args: argparse.Namespace) -> None:
     conn.close()
     log.info("merge complete")
     cmd_validate(args)
+    cmd_consolidate_names(args)
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
@@ -575,7 +578,9 @@ def cmd_load_r365_item_cost(args: argparse.Namespace) -> None:
                 period,
                 menu,
                 item_name,
-                str(row[3]).strip() if row[3] else None,  # item_name_updated
+                _normalize_r365_item_name(str(row[3]).strip()) if row[3] else (
+                    _normalize_r365_item_name(item_name)
+                ),  # item_name_updated — normalized; falls back to item_name
                 str(row[1]).strip() if row[1] else None,  # menu_group
                 str(row[4]).strip() if row[4] else None,  # category_1
                 str(row[5]).strip() if row[5] else None,  # category_2
@@ -603,6 +608,65 @@ def cmd_load_r365_item_cost(args: argparse.Namespace) -> None:
         log.info("r365-item-cost: %s → %d rows upserted", path.name, len(rows))
 
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# R365 item_name_updated normalisation
+# ---------------------------------------------------------------------------
+_R365_SUFFIX_RE = re.compile(
+    r"\s*-\s*(in house|catering|3pd|club feast|ezcater|side|gameday|in-house)\s*$",
+    re.IGNORECASE,
+)
+
+_VENDOR_PREFIX_RE = re.compile(
+    r"^(fooda|hungry|sharebite|aramark|eurest|cureate|zerocater|foodworks|"
+    r"metz|territory|wck|catercow|guest\s+services|offsite)\s+",
+    re.IGNORECASE,
+)
+
+# Approved canonical mappings (raw/variant lowercase → target)
+_R365_ITEM_CANONICAL: dict[str, str] = {
+    # Cauli variants
+    "cauliflower + quinoa":                "Spiced Cauli + Quinoa Bowl",
+    "cauliflower + quinoa bowl":           "Spiced Cauli + Quinoa Bowl",
+    "sharebite cauliflower + quinoa bowl": "Spiced Cauli + Quinoa Bowl",
+    # BYO renames
+    "grain bowl":           "BYO Grain Bowl",
+    "salad bowl":           "BYO Salad Bowl",
+    "greens + grains bowl": "BYO Greens + Grains Bowl",
+    "harvest chicken bowl": "BYO Greens + Grains Bowl",
+    "kids byo":             "Kids Meal",
+    "burrito":              "BYO Indian Burrito",
+    # Retail merges (from consolidation review)
+    "fooda chicken tikka masala":         "Chicken Tikka Masala",
+    "cureate spicy chili chicken bowl":   "Spicy Chili Chicken Bowl",
+    "fooda mango lassi":                  "Mango Lassi",
+    "eurest mango lassi":                 "Mango Lassi",
+    "hungry byo chicken tikka bowl":      "Chicken Tikka Bowl",
+    "sharebite chicken tikka bowl":       "Chicken Tikka Bowl",
+    "hungry masala chai cookies":         "Masala Chai Cookies",
+    "sharebite spicy chili chicken bowl": "Spicy Chili Chicken Bowl",
+}
+
+
+def _normalize_r365_item_name(raw: str) -> str:
+    """Strip known suffixes then apply canonical mapping to item_name_updated."""
+    s = raw.strip()
+    while True:
+        stripped = _R365_SUFFIX_RE.sub("", s).strip()
+        if stripped == s:
+            break
+        s = stripped
+    canonical = _R365_ITEM_CANONICAL.get(s.lower())
+    if canonical:
+        return canonical
+    if _VENDOR_PREFIX_RE.match(s):
+        log.warning(
+            "r365-item-cost: unmapped vendor-prefixed name '%s' — add to "
+            "_R365_ITEM_CANONICAL if it should be merged with a retail item",
+            s,
+        )
+    return s
 
 
 _NAME_CONSOLIDATIONS = [
