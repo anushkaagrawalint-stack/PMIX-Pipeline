@@ -709,6 +709,56 @@ def cmd_consolidate_names(args: argparse.Namespace) -> None:
     log.info("consolidate-names: done — %d rows updated", total)
 
 
+_BACKFILL_OG_SQL = """
+WITH raw_mod_og AS (
+    -- Extract modifier_guid -> og_guid per location from raw orders (all nesting levels)
+    SELECT DISTINCT
+        o.location_code,
+        mod_elem->>'guid'                       AS modifier_guid,
+        (mod_elem->'optionGroup')->>'guid'       AS og_guid
+    FROM raw.toast_orders o,
+         jsonb_array_elements(o.payload->'checks')      AS check_elem,
+         jsonb_array_elements(check_elem->'selections') AS sel_elem,
+         jsonb_array_elements(sel_elem->'modifiers')    AS mod_elem
+    WHERE (mod_elem->'optionGroup')->>'guid' IS NOT NULL
+      AND mod_elem->>'guid' IS NOT NULL
+),
+raw_og_names AS (
+    -- Resolve og_guid -> og_name per location from stored menus config
+    SELECT
+        c.location_code,
+        og_ref.value->>'guid' AS og_guid,
+        og_ref.value->>'name' AS og_name
+    FROM raw.toast_config c,
+         jsonb_each(c.payload->'modifierGroupReferences') AS og_ref
+    WHERE c.config_type = 'menus'
+      AND og_ref.value->>'guid' IS NOT NULL
+      AND og_ref.value->>'name' IS NOT NULL
+)
+UPDATE public.fact_modifiers fm
+SET
+    option_group_guid = rmo.og_guid,
+    option_group_name = ron.og_name
+FROM raw_mod_og rmo
+JOIN raw_og_names ron
+    ON ron.location_code = rmo.location_code
+   AND ron.og_guid = rmo.og_guid
+WHERE fm.modifier_guid = rmo.modifier_guid
+  AND fm.option_group_guid IS DISTINCT FROM rmo.og_guid
+"""
+
+
+def cmd_backfill_option_groups(args: argparse.Namespace) -> None:
+    """Backfill option_group_guid/name on fact_modifiers using raw order history."""
+    conn = db.connect()
+    with conn.cursor() as cur:
+        cur.execute(_BACKFILL_OG_SQL)
+        updated = cur.rowcount
+    conn.commit()
+    conn.close()
+    log.info("backfill-option-groups: done — %d fact_modifiers rows updated", updated)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="toast_pipeline")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -748,6 +798,9 @@ def main() -> None:
     sub.add_parser("consolidate-names",
                    help="apply approved name consolidations directly to public.fact_order_lines.canonical_name"
                    ).set_defaults(func=cmd_consolidate_names)
+    sub.add_parser("backfill-option-groups",
+                   help="backfill option_group_guid/name on fact_modifiers from raw order history"
+                   ).set_defaults(func=cmd_backfill_option_groups)
 
     args = p.parse_args()
     args.func(args)

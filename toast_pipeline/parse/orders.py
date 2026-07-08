@@ -116,15 +116,17 @@ def _parse_selection(sel: dict, out: ParsedOrder, order_guid: str, check_guid: s
         })
 
     _walk_modifiers(sel.get("modifiers") or [], out, sel_guid, order_guid,
-                    location_code, business_date, voided, depth=1)
+                    location_code, business_date, voided, lookups, depth=1)
 
 
 def _walk_modifiers(mods: list, out: ParsedOrder, parent_sel: str, order_guid: str,
                     location_code: str, business_date: int, parent_voided: bool,
-                    depth: int) -> None:
+                    lookups: dict, depth: int) -> None:
+    og_map = lookups.get("option_group", {})
     for mod in mods:
         raw = mod.get("displayName") or (mod.get("item") or {}).get("name") or ""
         clean = normalize.clean_name(raw)
+        og_guid = (mod.get("optionGroup") or {}).get("guid") or None
         out.modifiers.append({
             "modifier_guid": mod.get("guid", ""),
             "parent_selection": parent_sel,
@@ -138,8 +140,10 @@ def _walk_modifiers(mods: list, out: ParsedOrder, parent_sel: str, order_guid: s
             "price": mod.get("price") or 0,
             "is_blocklisted": normalize.is_blocklisted(clean),
             "is_voided": bool(mod.get("voided")) or parent_voided,
+            "option_group_guid": og_guid,
+            "option_group_name": og_map.get(og_guid) if og_guid else None,
         })
         nested = mod.get("modifiers") or []
         if nested:
             _walk_modifiers(nested, out, parent_sel, order_guid,
-                            location_code, business_date, parent_voided, depth + 1)
+                            location_code, business_date, parent_voided, lookups, depth + 1)

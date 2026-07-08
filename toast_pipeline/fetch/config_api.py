@@ -96,10 +96,16 @@ def _walk_groups(groups: list, m_name: str, parent_name: str, sink: dict,
 
 def build_lookups(cfg: dict[str, object]) -> dict[str, dict]:
     """Flatten config payloads into guid -> name lookup dicts."""
-    lk: dict[str, dict] = {"dining": {}, "menu": {}, "menu_group": {}, "menu_group_guid": {}, "sales_cat": {}, "alt_pay": {}}
+    lk: dict[str, dict] = {"dining": {}, "menu": {}, "menu_group": {}, "menu_group_guid": {}, "sales_cat": {}, "alt_pay": {}, "option_group": {}}
 
     for d in _as_list(cfg.get("dining_options"), "diningOptions"):
         lk["dining"][d.get("guid", "")] = d.get("name", "")
+
+    menus_payload = cfg.get("menus") or {}
+    if isinstance(menus_payload, dict):
+        for ref in (menus_payload.get("modifierGroupReferences") or {}).values():
+            if isinstance(ref, dict) and ref.get("guid") and ref.get("name"):
+                lk["option_group"][ref["guid"]] = ref["name"]
 
     for menu in _as_list(cfg.get("menus"), "menus"):
         m_name = menu.get("name", "")

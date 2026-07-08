@@ -80,16 +80,20 @@ ON CONFLICT (selection_guid) DO UPDATE SET
 -- 3. Modifiers, checks, payments, adjustments
 -- ---------------------------------------------------------------------------
 INSERT INTO public.fact_modifiers (modifier_guid, parent_selection, order_guid,
-    location_code, business_date, canonical_name, mod_type, depth, quantity, price, is_voided)
+    location_code, business_date, canonical_name, mod_type, depth, quantity, price, is_voided,
+    option_group_guid, option_group_name)
 SELECT m.modifier_guid, m.parent_selection, m.order_guid, m.location_code,
        to_date(m.business_date::text,'YYYYMMDD'),
-       m.clean_name, dm.mod_type, m.depth, m.quantity, m.price, m.is_voided
+       m.clean_name, dm.mod_type, m.depth, m.quantity, m.price, m.is_voided,
+       m.option_group_guid, m.option_group_name
 FROM staging.modifiers m
 LEFT JOIN public.dim_modifier dm ON dm.canonical_name = m.clean_name
 WHERE NOT m.is_blocklisted
 ON CONFLICT (modifier_guid, parent_selection) DO UPDATE SET
-    is_voided      = EXCLUDED.is_voided,
-    canonical_name = EXCLUDED.canonical_name;
+    is_voided          = EXCLUDED.is_voided,
+    canonical_name     = EXCLUDED.canonical_name,
+    option_group_guid  = EXCLUDED.option_group_guid,
+    option_group_name  = EXCLUDED.option_group_name;
 
 INSERT INTO public.fact_checks
 SELECT c.check_guid, c.order_guid, c.location_code,
