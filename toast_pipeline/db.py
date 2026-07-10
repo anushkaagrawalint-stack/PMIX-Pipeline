@@ -293,3 +293,14 @@ def merge_to_public(conn: psycopg.Connection) -> None:
     seed_locations(conn)
     conn.execute((SQL_DIR / "005_merge_to_public.sql").read_text())
     conn.commit()
+    refresh_precomputed(conn)
+
+
+def refresh_precomputed(conn: psycopg.Connection) -> None:
+    """Rebuild the dashboard's precomputed modifier-cost layer (analytics.pc_*).
+
+    Full rebuild into *_new tables + atomic swap, ~70s. Runs after every merge so
+    the layer always reflects the freshest facts and Needs-Review channel overrides.
+    """
+    conn.execute((SQL_DIR / "pc_refresh.sql").read_text())
+    conn.commit()
