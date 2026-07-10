@@ -1,0 +1,259 @@
+-- Precomputed modifier-cost layer refresh (full rebuild + atomic swap).
+-- Runs automatically at the end of every merge_to_public() (see toast_pipeline/db.py),
+-- or manually: python -m toast_pipeline.cli precompute
+--
+-- Feeds the dashboard's Pink Sheets / ME detail / BYO tabs via two tables:
+--   analytics.pc_modifier_unit_cost  — resolved §1 unit cost per (modifier, period)
+--                                      (MODIFIER_COST_FIX_SPEC.md lookup, incl. aliases,
+--                                       extra/organic/1-2/side-of rules, chutney hardcode)
+--   analytics.pc_modifier_daily      — daily-grain modifier facts with reader flags
+--                                      (channel is Needs-Review-override-aware;
+--                                       byo/detail/cmc scopes as column flags)
+-- Parity: validated row-identical vs the live dashboard queries on P5-2026
+-- (1,582/1,582 detail rows exact; BYO per-location exact; summary sums to the cent).
+-- Rebuild takes ~70s; readers answer YTD in ~2s vs 557s computing live.
+--
+-- MUST STAY IN SYNC with lib/modifierCost.ts (aliases + fallbacks) and the
+-- byo_fix map in the dashboard. Statements run in one transaction (no BEGIN needed).
+
+CREATE TABLE IF NOT EXISTS analytics.pc_modifier_unit_cost_new (
+      norm_name TEXT NOT NULL,
+      pnum      INT  NOT NULL,
+      unit_cost NUMERIC NOT NULL,
+      PRIMARY KEY (norm_name, pnum)
+    );
+
+TRUNCATE analytics.pc_modifier_unit_cost_new;
+
+INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost)
+    WITH _mi AS (
+      SELECT LOWER(clean_name) AS clean_name, cost_per_portion,
+             RIGHT(period,4)::INT * 100 + SUBSTRING(period,2,2)::INT AS pnum
+      FROM analytics.r365_modifier_cost
+      WHERE recipe_name LIKE 'MI %' AND cost_per_portion > 0
+    ),
+    _names AS (
+      SELECT DISTINCT LOWER(CASE WHEN canonical_name LIKE '% -*' THEN LEFT(canonical_name, LENGTH(canonical_name) - 3) ELSE canonical_name END) AS norm_name
+      FROM public.fact_modifiers
+    ),
+    _pnums AS (
+      SELECT DISTINCT fiscal_year * 100 + period AS pnum FROM public.dim_fiscal_period
+    ),
+    _pairs AS (SELECT n.norm_name, p.pnum FROM _names n CROSS JOIN _pnums p),
+    _cands AS (
+      SELECT pr.norm_name, pr.pnum AS target_pnum, m.cost_per_portion,
+             m.pnum AS src_pnum, (m.clean_name = pr.norm_name) AS is_direct
+      FROM _pairs pr
+      JOIN _mi m ON m.clean_name IN (pr.norm_name, CASE pr.norm_name
+  WHEN 'tomato garlic (butter masala)' THEN 'tomato garlic sauce'
+  WHEN 'tikka masala'                  THEN 'tikka masala sauce'
+  WHEN 'tamarind chili (spicy)'        THEN 'tamarind chili sauce'
+  WHEN 'peanut sesame'                 THEN 'peanut sesame sauce'
+  WHEN 'coconut ginger'                THEN 'coconut ginger sauce'
+  WHEN 'tandoori paneer'               THEN 'organic tandoori paneer'
+  WHEN 'romaine'                       THEN 'shredded romaine'
+  ELSE pr.norm_name END)
+      WHERE m.pnum <= pr.pnum
+    ),
+    _primary AS (
+      SELECT DISTINCT ON (norm_name, target_pnum) norm_name, target_pnum, cost_per_portion
+      FROM _cands ORDER BY norm_name, target_pnum, src_pnum DESC, is_direct DESC
+    )
+    SELECT pr.norm_name, pr.pnum,
+      CASE
+        WHEN pr.norm_name LIKE 'skip %' OR pr.norm_name LIKE 'no %' THEN 0
+        WHEN p.cost_per_portion IS NOT NULL THEN p.cost_per_portion
+        WHEN pr.norm_name LIKE 'extra organic %' THEN COALESCE(
+          (SELECT p2.cost_per_portion FROM _primary p2
+           WHERE p2.norm_name = SUBSTRING(pr.norm_name FROM 15) AND p2.target_pnum = pr.pnum), 0)
+        WHEN pr.norm_name LIKE 'extra %' THEN COALESCE(
+          (SELECT p2.cost_per_portion FROM _primary p2
+           WHERE p2.norm_name = SUBSTRING(pr.norm_name FROM 7) AND p2.target_pnum = pr.pnum), 0)
+        WHEN pr.norm_name LIKE 'organic %' THEN COALESCE(
+          (SELECT p2.cost_per_portion FROM _primary p2
+           WHERE p2.norm_name = SUBSTRING(pr.norm_name FROM 9) AND p2.target_pnum = pr.pnum), 0)
+        WHEN pr.norm_name LIKE '1/2 %' THEN COALESCE(
+          (SELECT p2.cost_per_portion / 2.0 FROM _primary p2
+           WHERE p2.norm_name = REGEXP_REPLACE(SUBSTRING(pr.norm_name FROM 5), '^and ', '', 'i')
+             AND p2.target_pnum = pr.pnum), 0)
+        WHEN pr.norm_name LIKE '% - side' THEN COALESCE(
+          (SELECT p2.cost_per_portion FROM _primary p2
+           WHERE p2.norm_name = LEFT(pr.norm_name, LENGTH(pr.norm_name) - 7)
+             AND p2.target_pnum = pr.pnum), 0)
+        WHEN pr.norm_name LIKE 'side of %' THEN COALESCE(
+          (SELECT p2.cost_per_portion FROM _primary p2
+           WHERE p2.norm_name = SUBSTRING(pr.norm_name FROM 9)
+             AND p2.target_pnum = pr.pnum), 0)
+        WHEN pr.norm_name IN ('spicy mango chutney', 'spicy mango chutney - side') THEN 0.1777
+        ELSE 0
+      END::NUMERIC
+    FROM _pairs pr
+    LEFT JOIN _primary p ON p.norm_name = pr.norm_name AND p.target_pnum = pr.pnum;
+
+CREATE TABLE IF NOT EXISTS analytics.pc_modifier_daily_new (
+      business_date  DATE NOT NULL,
+      pnum           INT,
+      location_code  TEXT NOT NULL,
+      raw_parent     TEXT NOT NULL,
+      channel        TEXT NOT NULL,
+      mod_display    TEXT NOT NULL,
+      mod_norm       TEXT NOT NULL,
+      section_base   TEXT,
+      from_item_type BOOLEAN NOT NULL,
+      pit_item_type  TEXT,
+      include_cmc    BOOLEAN NOT NULL,
+      byo_type       TEXT,
+      in_byo_scope   BOOLEAN NOT NULL,
+      qty            NUMERIC NOT NULL
+    );
+
+TRUNCATE analytics.pc_modifier_daily_new;
+
+INSERT INTO analytics.pc_modifier_daily_new
+    WITH byo_fix(raw, clean) AS (VALUES
+      ('Grain Bowl','BYO Grain Bowl'), ('Salad Bowl','BYO Salad Bowl'),
+      ('Greens + Grains Bowl','BYO Greens + Grains Bowl'),
+      ('Cauliflower + Quinoa','Spiced Cauli + Quinoa Bowl'),
+      ('Cauliflower + Quinoa Bowl','Spiced Cauli + Quinoa Bowl'),
+      ('Kids BYO','Kids Meal'), ('Burrito','BYO Indian Burrito'),
+      ('Grain Bowl - In House','BYO Grain Bowl'), ('Salad Bowl - In House','BYO Salad Bowl'),
+      ('Greens + Grains Bowl - In House','BYO Greens + Grains Bowl'),
+      ('Harvest Chicken Bowl - In House','BYO Greens + Grains Bowl'),
+      ('Cauliflower + Quinoa - In House','Spiced Cauli + Quinoa Bowl'),
+      ('Burrito - In House','BYO Indian Burrito'), ('Kids BYO - In House','Kids Meal'),
+      ('Homemade Juice - In House','Homemade Juice'),
+      ('Chicken Tikka Bowl - In House','Chicken Tikka Bowl'),
+      ('Spicy Chili Chicken Bowl - In House','Spicy Chili Chicken Bowl'),
+      ('Paneer Tikka Bowl - In House','Paneer Tikka Bowl'),
+      ('Lamb Kebab Bowl - In House','Lamb Kebab Bowl'),
+      ('Chicken Tikka + Avocado Salad - In House','Chicken Tikka + Avocado Salad'),
+      ('Butter Chicken - In House','Butter Chicken'),
+      ('Chicken Tikka Masala - In House','Chicken Tikka Masala'),
+      ('Aloo Gobhi - In House','Aloo Gobhi'), ('Saag Paneer - In House','Saag Paneer'),
+      ('Paneer Butter Masala - In House','Paneer Butter Masala'),
+      ('Saag Chole - In House','Saag Chole'),
+      ('Pick 2 Combo Plate - In House','Pick 2 Combo Plate'),
+      ('Tandoori Paneer Burrito - In House','Tandoori Paneer Burrito'),
+      ('Butter Chicken Burrito - In House','Butter Chicken Burrito')
+    )
+    SELECT
+      fol.business_date,
+      fp.fiscal_year * 100 + fp.period                     AS pnum,
+      fol.location_code                                    AS location_code,
+      fol.canonical_name                                   AS raw_parent,
+      (COALESCE(co.correct_channel, CASE
+  WHEN fol.menu_name IN ('FOOD - IN HOUSE', 'DRINKS - IN HOUSE') THEN 'IN_HOUSE'
+  WHEN fol.menu_name IN ('APP', 'FOOD - TOAST ONLINE ORDERING')  THEN 'APP'
+  WHEN fol.menu_name = 'DELIVERY'                                THEN 'TPD'
+  WHEN fol.menu_name = '3PD OPEN MARKUP'                         THEN 'TPD_MARKUP'
+  WHEN fol.menu_name = 'CATERING'                                THEN 'CATERING'
+  WHEN fol.menu_name = 'CATERING - 3PD'                          THEN 'CATERING_3PD'
+  WHEN fol.menu_name = 'OFFSITE POP-UPS'                         THEN 'OFFSITE'
+  WHEN fol.menu_name IS NULL                                      THEN 'OPEN_ITEMS'
+  ELSE 'OFFSITE' END))                                             AS channel,
+      CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END                        AS mod_display,
+      LOWER(CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END)                         AS mod_norm,
+      mt.modifier_type                                     AS section_base,
+      mt.from_item_type                                    AS from_item_type,
+      pit.item_type                                        AS pit_item_type,
+      (
+        EXISTS (SELECT 1 FROM analytics.modifier_type
+                WHERE modifier_name = fm.canonical_name
+                  AND modifier_type NOT LIKE 'Catering%'
+                  AND modifier_type NOT IN ('NA','ZeroCater','Plate - Main','Online'))
+        OR NOT EXISTS (SELECT 1 FROM analytics.modifier_type WHERE modifier_name = fm.canonical_name)
+        OR fm.canonical_name = 'That Fire Hot Sauce'
+      )                                                    AS include_cmc,
+      bt.byo_type                                          AS byo_type,
+      COALESCE(
+        UPPER(fol.menu_group) IN (
+          'BOWLS','BUILD YOUR OWN BOWL','BYO','CHEF CURATED BOWLS',
+          'PLATES','CLASSIC INDIAN PLATES','BURRITOS','INDIAN BURRITOS','KIDS','KIDS MEAL')
+        OR fol.canonical_name IN (
+          'Side of Main','Side of Grain','Side of Sauce','Side of Veggie',
+          'Homemade Juice','Handcrafted Juice for a Group - 1/2 Gallon')
+      , FALSE)                                             AS in_byo_scope,
+      SUM(fm.quantity)                                     AS qty
+    FROM public.fact_modifiers fm
+    JOIN public.fact_order_lines fol ON fm.parent_selection = fol.selection_guid
+    LEFT JOIN analytics.channel_overrides co ON co.selection_guid = fol.selection_guid
+    LEFT JOIN public.dim_fiscal_period fp
+           ON fol.business_date >= fp.start_date::DATE
+          AND fol.business_date <= fp.end_date::DATE
+    LEFT JOIN LATERAL (
+      SELECT p.item_type FROM analytics.parent_item_type p
+      WHERE p.parent_item = fol.canonical_name
+         OR (p.parent_item IN (SELECT raw FROM byo_fix WHERE clean = fol.canonical_name)
+             AND p.item_type ILIKE '%' || CASE WHEN (COALESCE(co.correct_channel, CASE
+  WHEN fol.menu_name IN ('FOOD - IN HOUSE', 'DRINKS - IN HOUSE') THEN 'IN_HOUSE'
+  WHEN fol.menu_name IN ('APP', 'FOOD - TOAST ONLINE ORDERING')  THEN 'APP'
+  WHEN fol.menu_name = 'DELIVERY'                                THEN 'TPD'
+  WHEN fol.menu_name = '3PD OPEN MARKUP'                         THEN 'TPD_MARKUP'
+  WHEN fol.menu_name = 'CATERING'                                THEN 'CATERING'
+  WHEN fol.menu_name = 'CATERING - 3PD'                          THEN 'CATERING_3PD'
+  WHEN fol.menu_name = 'OFFSITE POP-UPS'                         THEN 'OFFSITE'
+  WHEN fol.menu_name IS NULL                                      THEN 'OPEN_ITEMS'
+  ELSE 'OFFSITE' END)) IN ('APP','TPD','TPD_MARKUP')
+                   THEN 'Online' ELSE 'In House' END)
+      ORDER BY (p.parent_item = fol.canonical_name) DESC
+      LIMIT 1
+    ) pit ON true
+    CROSS JOIN LATERAL (
+      SELECT COALESCE(
+        known.t,
+        CASE WHEN LOWER(CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END) = 'that fire hot sauce' THEN 'Chutney And Dressing' END,
+        CASE WHEN NOT EXISTS (
+          SELECT 1 FROM analytics.modifier_type WHERE modifier_name = CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END
+        ) THEN pit.item_type END
+      ) AS modifier_type,
+      (known.t IS NULL
+       AND LOWER(CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END) <> 'that fire hot sauce'
+       AND NOT EXISTS (
+         SELECT 1 FROM analytics.modifier_type WHERE modifier_name = CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END
+       )) AS from_item_type
+      FROM (
+        SELECT (SELECT amt.modifier_type FROM analytics.modifier_type amt
+                WHERE amt.modifier_name = CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END
+                  AND amt.modifier_type NOT LIKE 'Catering%'
+                  AND amt.modifier_type NOT IN ('NA','ZeroCater','Plate - Main','Online')
+                ORDER BY (amt.item_type = pit.item_type) DESC NULLS LAST
+                LIMIT 1) AS t
+      ) known
+    ) mt
+    LEFT JOIN LATERAL (
+      -- BYO Breakdown semantics: strict item_type match on the UNSTRIPPED name
+      SELECT LOWER(m2.modifier_type) AS byo_type
+      FROM analytics.modifier_type m2
+      JOIN (SELECT DISTINCT ON (parent_item) parent_item, item_type
+            FROM analytics.parent_item_type ORDER BY parent_item, item_type) pit2
+        ON pit2.parent_item = fol.canonical_name
+      WHERE m2.modifier_name = fm.canonical_name
+        AND m2.item_type     = pit2.item_type
+        AND LOWER(m2.modifier_type) IN
+          ('main','1/2 main','base','1/2 base','veggie','topping','sauce','chutney + dressing')
+      LIMIT 1
+    ) bt ON true
+    WHERE NOT fol.is_voided AND NOT fol.is_deferred AND NOT fm.is_voided
+      AND (
+        fol.menu_name IN (
+          'FOOD - IN HOUSE','DRINKS - IN HOUSE','APP','FOOD - TOAST ONLINE ORDERING',
+          'DELIVERY','3PD OPEN MARKUP','CATERING','CATERING - 3PD','OFFSITE POP-UPS')
+        OR (fol.menu_name IS NULL AND fol.sales_category IN ('Food','Drink'))
+      )
+    GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13;
+
+CREATE INDEX IF NOT EXISTS pc_mod_daily_new_date ON analytics.pc_modifier_daily_new (business_date);
+
+CREATE INDEX IF NOT EXISTS pc_mod_daily_new_norm ON analytics.pc_modifier_daily_new (mod_norm, pnum);
+
+SELECT COUNT(*) n FROM analytics.pc_modifier_unit_cost_new;
+
+SELECT COUNT(*) n FROM analytics.pc_modifier_daily_new;
+
+DROP TABLE IF EXISTS analytics.pc_modifier_unit_cost;
+    DROP TABLE IF EXISTS analytics.pc_modifier_daily;
+    ALTER TABLE analytics.pc_modifier_unit_cost_new RENAME TO pc_modifier_unit_cost;
+    ALTER TABLE analytics.pc_modifier_daily_new RENAME TO pc_modifier_daily;
+    ALTER INDEX analytics.pc_mod_daily_new_date RENAME TO pc_mod_daily_date;
+    ALTER INDEX analytics.pc_mod_daily_new_norm RENAME TO pc_mod_daily_norm;
+

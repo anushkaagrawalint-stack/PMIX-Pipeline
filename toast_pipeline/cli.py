@@ -158,6 +158,16 @@ def cmd_reparse(args: argparse.Namespace) -> None:
         cmd_consolidate_names(args)
 
 
+def cmd_precompute(args: argparse.Namespace) -> None:
+    """Rebuild the dashboard's precomputed modifier-cost layer only (analytics.pc_*).
+    Normally unnecessary — every merge refreshes it — but useful after editing
+    sql/pc_refresh.sql or analytics source tables (r365 loads, overrides) directly."""
+    conn = db.connect()
+    db.refresh_precomputed(conn)
+    conn.close()
+    log.info("precomputed layer refreshed")
+
+
 def cmd_merge(args: argparse.Namespace) -> None:
     """Merge whatever is currently in staging into public, then validate.
     Useful to finish a run whose pull succeeded but whose merge failed."""
@@ -764,6 +774,7 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init-db").set_defaults(func=cmd_init_db)
+    sub.add_parser("precompute").set_defaults(func=cmd_precompute)
 
     runp = sub.add_parser("run")
     runp.add_argument("--start")
