@@ -57,6 +57,8 @@ def parse_order(order: dict, location_code: str, lookups: dict) -> ParsedOrder:
                 "alt_payment_name": lookups["alt_pay"].get(alt_guid) or None,
                 "amount": pay.get("amount"),
                 "tip_amount": pay.get("tipAmount"),
+                "paid_status": pay.get("paymentStatus"),
+                "refund_amount": (pay.get("refund") or {}).get("refundAmount"),
             })
             if pay.get("refund"):
                 out.adjustments.append({

@@ -103,11 +103,20 @@ ON CONFLICT (check_guid) DO UPDATE SET
     is_voided = EXCLUDED.is_voided, total_amount = EXCLUDED.total_amount;
 
 INSERT INTO public.br_order_payment
+    (payment_guid, check_guid, order_guid, location_code, business_date,
+     payment_type, alt_payment_name, amount, tip_amount, paid_status, refund_amount)
 SELECT p.payment_guid, p.check_guid, p.order_guid, p.location_code,
        to_date(p.business_date::text,'YYYYMMDD'),
-       p.payment_type, p.alt_payment_name, p.amount, p.tip_amount
+       p.payment_type, p.alt_payment_name, p.amount, p.tip_amount,
+       p.paid_status, p.refund_amount
 FROM staging.payments p
-ON CONFLICT (payment_guid) DO NOTHING;
+ON CONFLICT (payment_guid) DO UPDATE SET
+    payment_type     = EXCLUDED.payment_type,
+    alt_payment_name = EXCLUDED.alt_payment_name,
+    amount           = EXCLUDED.amount,
+    tip_amount       = EXCLUDED.tip_amount,
+    paid_status      = EXCLUDED.paid_status,
+    refund_amount    = EXCLUDED.refund_amount;
 
 INSERT INTO public.fact_adjustments (order_guid, check_guid, selection_guid,
     location_code, business_date, kind, name, amount)
