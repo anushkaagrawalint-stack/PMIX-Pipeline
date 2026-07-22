@@ -38,6 +38,10 @@ def _pull_location(loc: config.Location, run_id: int, start: date, end: date) ->
         cfg = config_api.fetch_all_config(loc)
         db.land_raw_config(conn, run_id, loc.code, cfg)
         lookups = config_api.build_lookups(cfg)
+        # Sale-time-aware menu resolution (MENU_SALETIME_RESOLUTION_SPEC.md) —
+        # snapshots now includes today's, just landed above.
+        snapshots = db.fetch_menu_snapshots(conn, loc.code)
+        lookups["menu_resolver"] = config_api.build_time_lookups(snapshots, cfg)
 
         batch = {k: [] for k in ("order_lines", "modifiers", "checks", "payments", "adjustments")}
         page: list[dict] = []
@@ -135,6 +139,10 @@ def cmd_reparse(args: argparse.Namespace) -> None:
             log.warning("%s: no stored config found — skipping (run a pull first)", loc.code)
             continue
         lookups = config_api.build_lookups(cfg)
+        # Sale-time-aware menu resolution — reparse output must not depend on
+        # *when* the reparse is run (MENU_SALETIME_RESOLUTION_SPEC.md).
+        snapshots = db.fetch_menu_snapshots(conn, loc.code)
+        lookups["menu_resolver"] = config_api.build_time_lookups(snapshots, cfg)
         batch = {k: [] for k in ("order_lines", "modifiers", "checks", "payments", "adjustments")}
         n = 0
         for payload in db.fetch_raw_orders(conn, loc.code, start, end):

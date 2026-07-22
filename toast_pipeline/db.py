@@ -289,6 +289,29 @@ def fetch_latest_config(conn: psycopg.Connection, location_code: str) -> dict[st
     return out
 
 
+def fetch_menu_snapshots(conn: psycopg.Connection, location_code: str) -> list[tuple[date, object]]:
+    """One 'menus' config snapshot per day the location was pulled, ascending,
+    deduped: drop a day whose payload is identical to the previous kept day
+    (menus change rarely — this keeps the list to a handful of distinct
+    catalogs instead of one entry per pull). Source of sale-time truth for
+    menu-group resolution — see MENU_SALETIME_RESOLUTION_SPEC.md."""
+    rows = conn.execute(
+        """
+        SELECT DISTINCT ON (fetched_at::DATE) fetched_at::DATE AS snapshot_date, payload
+        FROM raw.toast_config
+        WHERE location_code = %s AND config_type = 'menus'
+        ORDER BY fetched_at::DATE, pull_run_id DESC
+        """,
+        (location_code,),
+    ).fetchall()
+    out: list[tuple[date, object]] = []
+    for snapshot_date, payload in rows:
+        if out and out[-1][1] == payload:
+            continue
+        out.append((snapshot_date, payload))
+    return out
+
+
 def merge_to_public(conn: psycopg.Connection) -> None:
     seed_locations(conn)
     conn.execute((SQL_DIR / "005_merge_to_public.sql").read_text())

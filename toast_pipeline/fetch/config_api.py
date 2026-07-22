@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import date, datetime
 
 import requests
 
@@ -121,3 +122,66 @@ def build_lookups(cfg: dict[str, object]) -> dict[str, dict]:
         lk["alt_pay"][ap.get("guid", "")] = ap.get("name", "")
 
     return lk
+
+
+def _business_date_to_date(business_date: int) -> date:
+    return datetime.strptime(str(business_date), "%Y%m%d").date()
+
+
+def build_time_lookups(snapshots: list[tuple[date, object]], latest_cfg: dict[str, object]):
+    """Sale-time-aware menu resolver, built from daily menu-config snapshots
+    (ascending, from db.fetch_menu_snapshots). Menu restructures must never
+    rewrite order history — see MENU_SALETIME_RESOLUTION_SPEC.md section 2.
+
+    Returns resolve(item_group_guid, item_guid, business_date) -> {"menu": ..., "group": ...} | {}
+    Resolution order (first hit wins):
+      1. group guid in the as-of snapshot (latest snapshot_date <= business_date,
+         clamped to the earliest snapshot for dates before the first snapshot).
+      2. group guid in the nearest other snapshot — scan backward, then forward.
+      3. item guid in the as-of snapshot.
+      4. item guid in the latest config (today's behavior, last resort).
+    """
+    per_snapshot: list[tuple[date, dict, dict]] = []
+    for snapshot_date, payload in snapshots:
+        group_guid_map: dict = {}
+        item_guid_map: dict = {}
+        for menu in _as_list(payload, "menus"):
+            m_name = menu.get("name", "")
+            _walk_groups(menu.get("menuGroups") or [], m_name, "", item_guid_map,
+                         group_sink=group_guid_map)
+        per_snapshot.append((snapshot_date, group_guid_map, item_guid_map))
+
+    latest_item_guid_map = build_lookups(latest_cfg)["menu_group"]
+
+    def resolve(item_group_guid: str, item_guid: str, business_date: int) -> dict:
+        if not per_snapshot:
+            return latest_item_guid_map.get(item_guid, {})
+
+        target = _business_date_to_date(business_date)
+        as_of = 0  # clamps to the earliest snapshot if target predates all of them
+        for i, (d, _, _) in enumerate(per_snapshot):
+            if d <= target:
+                as_of = i
+            else:
+                break
+
+        if item_group_guid:
+            hit = per_snapshot[as_of][1].get(item_group_guid)
+            if hit:
+                return hit
+            for i in range(as_of - 1, -1, -1):
+                hit = per_snapshot[i][1].get(item_group_guid)
+                if hit:
+                    return hit
+            for i in range(as_of + 1, len(per_snapshot)):
+                hit = per_snapshot[i][1].get(item_group_guid)
+                if hit:
+                    return hit
+
+        hit = per_snapshot[as_of][2].get(item_guid)
+        if hit:
+            return hit
+
+        return latest_item_guid_map.get(item_guid, {})
+
+    return resolve
