@@ -313,10 +313,25 @@ def fetch_menu_snapshots(conn: psycopg.Connection, location_code: str) -> list[t
     return out
 
 
+def _column_exists(conn: psycopg.Connection, schema: str, table: str, column: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+        (schema, table, column),
+    ).fetchone()
+    return row is not None
+
+
 def merge_to_public(conn: psycopg.Connection) -> None:
     seed_locations(conn)
-    conn.execute((SQL_DIR / "015_payment_status.sql").read_text())
-    conn.execute((SQL_DIR / "016_paid_business_date.sql").read_text())
+    # ALTER TABLE/CREATE INDEX take an ACCESS EXCLUSIVE lock on public.br_order_payment
+    # even when IF NOT EXISTS makes them a no-op, and that lock is held until the
+    # commit below — i.e. for the whole merge, blocking every dashboard read against
+    # that table. Skipping the file entirely once its column is already there avoids
+    # ever taking the lock on the (overwhelmingly common) case of a repeat merge.
+    if not _column_exists(conn, "public", "br_order_payment", "paid_status"):
+        conn.execute((SQL_DIR / "015_payment_status.sql").read_text())
+    if not _column_exists(conn, "public", "br_order_payment", "paid_business_date"):
+        conn.execute((SQL_DIR / "016_paid_business_date.sql").read_text())
     conn.execute((SQL_DIR / "005_merge_to_public.sql").read_text())
     conn.commit()
     refresh_precomputed(conn)
