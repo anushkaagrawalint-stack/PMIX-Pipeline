@@ -104,19 +104,23 @@ ON CONFLICT (check_guid) DO UPDATE SET
 
 INSERT INTO public.br_order_payment
     (payment_guid, check_guid, order_guid, location_code, business_date,
-     payment_type, alt_payment_name, amount, tip_amount, paid_status, refund_amount)
+     payment_type, alt_payment_name, amount, tip_amount, paid_status, refund_amount,
+     paid_business_date)
 SELECT p.payment_guid, p.check_guid, p.order_guid, p.location_code,
        to_date(p.business_date::text,'YYYYMMDD'),
        p.payment_type, p.alt_payment_name, p.amount, p.tip_amount,
-       p.paid_status, p.refund_amount
+       p.paid_status, p.refund_amount,
+       CASE WHEN p.paid_business_date IS NULL THEN NULL
+            ELSE to_date(p.paid_business_date::text,'YYYYMMDD') END
 FROM staging.payments p
 ON CONFLICT (payment_guid) DO UPDATE SET
-    payment_type     = EXCLUDED.payment_type,
-    alt_payment_name = EXCLUDED.alt_payment_name,
-    amount           = EXCLUDED.amount,
-    tip_amount       = EXCLUDED.tip_amount,
-    paid_status      = EXCLUDED.paid_status,
-    refund_amount    = EXCLUDED.refund_amount;
+    payment_type       = EXCLUDED.payment_type,
+    alt_payment_name   = EXCLUDED.alt_payment_name,
+    amount             = EXCLUDED.amount,
+    tip_amount         = EXCLUDED.tip_amount,
+    paid_status        = EXCLUDED.paid_status,
+    refund_amount      = EXCLUDED.refund_amount,
+    paid_business_date = EXCLUDED.paid_business_date;
 
 INSERT INTO public.fact_adjustments (order_guid, check_guid, selection_guid,
     location_code, business_date, kind, name, amount)

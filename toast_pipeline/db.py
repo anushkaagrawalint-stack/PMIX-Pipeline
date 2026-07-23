@@ -205,7 +205,7 @@ _COPY_SPECS = {
     "payments": ("staging.payments",
         ["payment_guid","check_guid","order_guid","location_code","business_date",
          "payment_type","alt_payment_name","amount","tip_amount",
-         "paid_status","refund_amount"]),
+         "paid_status","refund_amount","paid_business_date"]),
     "adjustments": ("staging.adjustments",
         ["order_guid","check_guid","selection_guid","location_code","business_date",
          "kind","name","amount"]),
@@ -316,6 +316,7 @@ def fetch_menu_snapshots(conn: psycopg.Connection, location_code: str) -> list[t
 def merge_to_public(conn: psycopg.Connection) -> None:
     seed_locations(conn)
     conn.execute((SQL_DIR / "015_payment_status.sql").read_text())
+    conn.execute((SQL_DIR / "016_paid_business_date.sql").read_text())
     conn.execute((SQL_DIR / "005_merge_to_public.sql").read_text())
     conn.commit()
     refresh_precomputed(conn)

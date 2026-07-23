@@ -59,6 +59,7 @@ def parse_order(order: dict, location_code: str, lookups: dict) -> ParsedOrder:
                 "tip_amount": pay.get("tipAmount"),
                 "paid_status": pay.get("paymentStatus"),
                 "refund_amount": (pay.get("refund") or {}).get("refundAmount"),
+                "paid_business_date": pay.get("paidBusinessDate"),
             })
             if pay.get("refund"):
                 out.adjustments.append({
