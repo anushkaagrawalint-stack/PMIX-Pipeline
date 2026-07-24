@@ -205,7 +205,7 @@ _COPY_SPECS = {
     "payments": ("staging.payments",
         ["payment_guid","check_guid","order_guid","location_code","business_date",
          "payment_type","alt_payment_name","amount","tip_amount",
-         "paid_status","refund_amount","paid_business_date","fees"]),
+         "paid_status","paid_business_date","fees","withholdings"]),
     "adjustments": ("staging.adjustments",
         ["order_guid","check_guid","selection_guid","location_code","business_date",
          "kind","name","amount"]),
@@ -229,6 +229,11 @@ def bulk_stage(conn: psycopg.Connection, kind: str, rows: list[dict]) -> int:
             k = (r["modifier_guid"], r["parent_selection"])
         elif kind == "adjustments":
             k = id(r)  # no natural key
+        elif kind == "order_refunds":
+            # refund_transaction_guid alone isn't unique — a single refund
+            # transaction can span multiple payments in the same check (a
+            # split-tender check refunded in one transaction).
+            k = (r["refund_transaction_guid"], r["payment_guid"])
         else:
             k = r[keyc]
         if k in seen:

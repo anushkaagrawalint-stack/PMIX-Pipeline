@@ -104,15 +104,15 @@ ON CONFLICT (check_guid) DO UPDATE SET
 
 INSERT INTO public.br_order_payment
     (payment_guid, check_guid, order_guid, location_code, business_date,
-     payment_type, alt_payment_name, amount, tip_amount, paid_status, refund_amount,
-     paid_business_date, fees)
+     payment_type, alt_payment_name, amount, tip_amount, paid_status,
+     paid_business_date, fees, withholdings)
 SELECT p.payment_guid, p.check_guid, p.order_guid, p.location_code,
        to_date(p.business_date::text,'YYYYMMDD'),
        p.payment_type, p.alt_payment_name, p.amount, p.tip_amount,
-       p.paid_status, p.refund_amount,
+       p.paid_status,
        CASE WHEN p.paid_business_date IS NULL THEN NULL
             ELSE to_date(p.paid_business_date::text,'YYYYMMDD') END,
-       p.fees
+       p.fees, p.withholdings
 FROM staging.payments p
 ON CONFLICT (payment_guid) DO UPDATE SET
     payment_type       = EXCLUDED.payment_type,
@@ -120,9 +120,9 @@ ON CONFLICT (payment_guid) DO UPDATE SET
     amount             = EXCLUDED.amount,
     tip_amount         = EXCLUDED.tip_amount,
     paid_status        = EXCLUDED.paid_status,
-    refund_amount      = EXCLUDED.refund_amount,
     paid_business_date = EXCLUDED.paid_business_date,
-    fees               = EXCLUDED.fees;
+    fees               = EXCLUDED.fees,
+    withholdings       = EXCLUDED.withholdings;
 
 INSERT INTO public.fact_adjustments (order_guid, check_guid, selection_guid,
     location_code, business_date, kind, name, amount)
@@ -140,7 +140,7 @@ SELECT r.refund_transaction_guid, r.payment_guid, r.order_guid, r.check_guid,
        r.refund_amount, r.tip_refund_amount
 FROM staging.order_refunds r
 WHERE r.refund_transaction_guid IS NOT NULL AND r.refund_transaction_guid <> ''
-ON CONFLICT (refund_transaction_guid) DO UPDATE SET
+ON CONFLICT (refund_transaction_guid, payment_guid) DO UPDATE SET
     refund_date       = EXCLUDED.refund_date,
     refund_amount      = EXCLUDED.refund_amount,
     tip_refund_amount  = EXCLUDED.tip_refund_amount;
