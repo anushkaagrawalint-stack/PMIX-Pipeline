@@ -105,13 +105,14 @@ ON CONFLICT (check_guid) DO UPDATE SET
 INSERT INTO public.br_order_payment
     (payment_guid, check_guid, order_guid, location_code, business_date,
      payment_type, alt_payment_name, amount, tip_amount, paid_status, refund_amount,
-     paid_business_date)
+     paid_business_date, fees)
 SELECT p.payment_guid, p.check_guid, p.order_guid, p.location_code,
        to_date(p.business_date::text,'YYYYMMDD'),
        p.payment_type, p.alt_payment_name, p.amount, p.tip_amount,
        p.paid_status, p.refund_amount,
        CASE WHEN p.paid_business_date IS NULL THEN NULL
-            ELSE to_date(p.paid_business_date::text,'YYYYMMDD') END
+            ELSE to_date(p.paid_business_date::text,'YYYYMMDD') END,
+       p.fees
 FROM staging.payments p
 ON CONFLICT (payment_guid) DO UPDATE SET
     payment_type       = EXCLUDED.payment_type,
@@ -120,10 +121,26 @@ ON CONFLICT (payment_guid) DO UPDATE SET
     tip_amount         = EXCLUDED.tip_amount,
     paid_status        = EXCLUDED.paid_status,
     refund_amount      = EXCLUDED.refund_amount,
-    paid_business_date = EXCLUDED.paid_business_date;
+    paid_business_date = EXCLUDED.paid_business_date,
+    fees               = EXCLUDED.fees;
 
 INSERT INTO public.fact_adjustments (order_guid, check_guid, selection_guid,
     location_code, business_date, kind, name, amount)
 SELECT a.order_guid, a.check_guid, a.selection_guid, a.location_code,
        to_date(a.business_date::text,'YYYYMMDD'), a.kind, a.name, a.amount
 FROM staging.adjustments a;
+
+-- order_refunds: payment-level refunds, dated by when the refund itself happened
+-- (refund_date), not the original payment's business_date. See plan.md.
+INSERT INTO public.order_refunds
+    (refund_transaction_guid, payment_guid, order_guid, check_guid, location_code,
+     refund_date, refund_amount, tip_refund_amount)
+SELECT r.refund_transaction_guid, r.payment_guid, r.order_guid, r.check_guid,
+       r.location_code, to_date(r.refund_date::text,'YYYYMMDD'),
+       r.refund_amount, r.tip_refund_amount
+FROM staging.order_refunds r
+WHERE r.refund_transaction_guid IS NOT NULL AND r.refund_transaction_guid <> ''
+ON CONFLICT (refund_transaction_guid) DO UPDATE SET
+    refund_date       = EXCLUDED.refund_date,
+    refund_amount      = EXCLUDED.refund_amount,
+    tip_refund_amount  = EXCLUDED.tip_refund_amount;

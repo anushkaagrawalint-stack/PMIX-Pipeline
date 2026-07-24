@@ -43,7 +43,7 @@ def _pull_location(loc: config.Location, run_id: int, start: date, end: date) ->
         snapshots = db.fetch_menu_snapshots(conn, loc.code)
         lookups["menu_resolver"] = config_api.build_time_lookups(snapshots, cfg)
 
-        batch = {k: [] for k in ("order_lines", "modifiers", "checks", "payments", "adjustments")}
+        batch = {k: [] for k in ("order_lines", "modifiers", "checks", "payments", "adjustments", "order_refunds")}
         page: list[dict] = []
 
         def _flush_page() -> None:
@@ -57,6 +57,7 @@ def _pull_location(loc: config.Location, run_id: int, start: date, end: date) ->
                 batch["checks"].extend(parsed.checks)
                 batch["payments"].extend(parsed.payments)
                 batch["adjustments"].extend(parsed.adjustments)
+                batch["order_refunds"].extend(parsed.order_refunds)
             page.clear()
 
         for order in orders_fetch.fetch_orders(loc, start, end):
@@ -143,7 +144,7 @@ def cmd_reparse(args: argparse.Namespace) -> None:
         # *when* the reparse is run (MENU_SALETIME_RESOLUTION_SPEC.md).
         snapshots = db.fetch_menu_snapshots(conn, loc.code)
         lookups["menu_resolver"] = config_api.build_time_lookups(snapshots, cfg)
-        batch = {k: [] for k in ("order_lines", "modifiers", "checks", "payments", "adjustments")}
+        batch = {k: [] for k in ("order_lines", "modifiers", "checks", "payments", "adjustments", "order_refunds")}
         n = 0
         for payload in db.fetch_raw_orders(conn, loc.code, start, end):
             parsed = parse_order(payload, loc.code, lookups)
@@ -152,6 +153,7 @@ def cmd_reparse(args: argparse.Namespace) -> None:
             batch["checks"].extend(parsed.checks)
             batch["payments"].extend(parsed.payments)
             batch["adjustments"].extend(parsed.adjustments)
+            batch["order_refunds"].extend(parsed.order_refunds)
             n += 1
         for kind, rows in batch.items():
             db.bulk_stage(conn, kind, rows)

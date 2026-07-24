@@ -184,7 +184,7 @@ def land_raw_config(conn: psycopg.Connection, run_id: int, location_code: str,
 def truncate_staging(conn: psycopg.Connection) -> None:
     conn.execute(
         "TRUNCATE staging.order_lines, staging.modifiers, staging.checks, "
-        "staging.payments, staging.adjustments"
+        "staging.payments, staging.adjustments, staging.order_refunds"
     )
     conn.commit()
 
@@ -205,10 +205,13 @@ _COPY_SPECS = {
     "payments": ("staging.payments",
         ["payment_guid","check_guid","order_guid","location_code","business_date",
          "payment_type","alt_payment_name","amount","tip_amount",
-         "paid_status","refund_amount","paid_business_date"]),
+         "paid_status","refund_amount","paid_business_date","fees"]),
     "adjustments": ("staging.adjustments",
         ["order_guid","check_guid","selection_guid","location_code","business_date",
          "kind","name","amount"]),
+    "order_refunds": ("staging.order_refunds",
+        ["refund_transaction_guid","payment_guid","order_guid","check_guid",
+         "location_code","refund_date","refund_amount","tip_refund_amount"]),
 }
 
 
@@ -332,6 +335,8 @@ def merge_to_public(conn: psycopg.Connection) -> None:
         conn.execute((SQL_DIR / "015_payment_status.sql").read_text())
     if not _column_exists(conn, "public", "br_order_payment", "paid_business_date"):
         conn.execute((SQL_DIR / "016_paid_business_date.sql").read_text())
+    if not _column_exists(conn, "public", "br_order_payment", "fees"):
+        conn.execute((SQL_DIR / "017_fees_and_refunds.sql").read_text())
     conn.execute((SQL_DIR / "005_merge_to_public.sql").read_text())
     conn.commit()
     refresh_precomputed(conn)

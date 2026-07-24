@@ -20,6 +20,7 @@ class ParsedOrder:
     checks: list[dict] = field(default_factory=list)
     payments: list[dict] = field(default_factory=list)
     adjustments: list[dict] = field(default_factory=list)
+    order_refunds: list[dict] = field(default_factory=list)
 
 
 def parse_order(order: dict, location_code: str, lookups: dict) -> ParsedOrder:
@@ -60,14 +61,29 @@ def parse_order(order: dict, location_code: str, lookups: dict) -> ParsedOrder:
                 "paid_status": pay.get("paymentStatus"),
                 "refund_amount": (pay.get("refund") or {}).get("refundAmount"),
                 "paid_business_date": pay.get("paidBusinessDate"),
+                "fees": pay.get("originalProcessingFee"),
             })
-            if pay.get("refund"):
+            refund = pay.get("refund")
+            if refund:
                 out.adjustments.append({
                     "order_guid": order_guid, "check_guid": check_guid,
                     "selection_guid": None, "location_code": location_code,
                     "business_date": business_date, "kind": "REFUND",
                     "name": pay.get("type"),
-                    "amount": (pay.get("refund") or {}).get("refundAmount"),
+                    "amount": refund.get("refundAmount"),
+                })
+                # See plan.md — dedicated payment-level refund table, keyed on Toast's
+                # own refund_transaction_guid, dated by when the refund itself
+                # happened (refundBusinessDate), not the original payment's date.
+                out.order_refunds.append({
+                    "refund_transaction_guid": (refund.get("refundTransaction") or {}).get("guid", ""),
+                    "payment_guid": pay.get("guid", ""),
+                    "order_guid": order_guid,
+                    "check_guid": check_guid,
+                    "location_code": location_code,
+                    "refund_date": refund.get("refundBusinessDate"),
+                    "refund_amount": refund.get("refundAmount"),
+                    "tip_refund_amount": refund.get("tipRefundAmount"),
                 })
 
         for sel in check.get("selections", []) or []:
