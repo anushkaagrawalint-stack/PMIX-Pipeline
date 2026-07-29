@@ -491,6 +491,34 @@ def _derive_modifier_clean_name(recipe_name: str) -> str:
     return re.sub(r"\s+", " ", recipe_name.replace("MI ", "")).strip()
 
 
+# recipe_name -> the clean_name it should actually have, overriding whatever the
+# sheet says. R365 has repeatedly mis-exported column B for these SAME recipes
+# across periods (wrong word order, missing/extra words, an accented character
+# Toast's own modifier names don't use, etc.) — each was verified against real
+# order data or fact_modifiers.canonical_name before being added here, not just
+# guessed from naming similarity. See MODIFIER_COST_KNOWN_FIXES.md for the full
+# rationale per entry and how to verify a new one before adding it.
+_KNOWN_CLEAN_NAME_FIXES: dict[str, str] = {
+    "MI Romaine": "Romaine Lettuce",
+    "MI 1/2 Romaine": "1/2 Romaine Lettuce",
+    "MI Romaine - Classic": "Romaine Lettuce - Classic",
+    "MI Romaine - Desi Deluxe": "Romaine Lettuce - Desi Deluxe",
+    "MI Romaine - Party Pack": "Romaine Lettuce - Party Pack",
+    "MI Shredded Romaine": "Romaine",
+    "MI 1/2 Harvest Veggies": "1/2 Roasted Vegetables",
+    "MI Kokum Vinaigrette Dressing": "Kokum Vinaigrette",
+    "MI Tikka Masala Sauce": "Tikka Masala",
+    "MI 1/2 Chicken Tikka": "1/2 Chicken",
+    "MI Sautéed Spinach": "Sauteed Spinach",
+    "MI Sautéed Spinach - Classic": "Sauteed Spinach - Classic",
+    "MI Sautéed Spinach - Desi Deluxe": "Sauteed Spinach - Desi Deluxe",
+    "MI Sautéed Spinach - Party Pack": "Sauteed Spinach - Party Pack",
+    "MI Sautéed Spinach - Side": "Sauteed Spinach - Side",
+    "MI HUNGRY Sautéed Spinach": "HUNGRY Sauteed Spinach",
+    "MI That Fire Hot Sauce - Bottle": "That Fire Hot Sauce (Bottle)",
+}
+
+
 def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
     """Load all P*ModifierCost.xlsx from Data/R365Data/ModifierCost/ into analytics.r365_modifier_cost."""
     import openpyxl
@@ -536,6 +564,12 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
             if not clean_name:
                 missing_clean_name += 1
                 clean_name = _derive_modifier_clean_name(recipe_name)
+            if recipe_name in _KNOWN_CLEAN_NAME_FIXES and clean_name != _KNOWN_CLEAN_NAME_FIXES[recipe_name]:
+                log.warning(
+                    "r365-modifier-cost: %s — %s: sheet says clean_name=%r, overriding to known-correct %r",
+                    path.name, recipe_name, clean_name, _KNOWN_CLEAN_NAME_FIXES[recipe_name],
+                )
+                clean_name = _KNOWN_CLEAN_NAME_FIXES[recipe_name]
 
             rows.append((
                 period,
@@ -553,6 +587,33 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
                 "derived via TRIM(SUBSTITUTE(A,\"MI \",\"\")) instead",
                 path.name, missing_clean_name, len(rows),
             )
+
+        # Flag clean_names that existed in the prior period but vanished here —
+        # usually either a naming drift in the new sheet (like "Romaine" quietly
+        # becoming "Romaine Lettuce") or a genuine gap in this period's R365
+        # export. Either way it's worth a human's eyes before trusting the load.
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT period FROM analytics.r365_modifier_cost")
+            existing_periods = [r[0] for r in cur.fetchall() if r[0] != period]
+
+        def _period_key(p: str) -> tuple[int, int]:
+            pm = re.match(r"P(\d{2})-(\d{4})", p)
+            return (int(pm.group(2)), int(pm.group(1))) if pm else (0, 0)
+
+        prior_periods = [p for p in existing_periods if _period_key(p) < _period_key(period)]
+        if prior_periods:
+            prior_period = max(prior_periods, key=_period_key)
+            current_clean_names = {r[2] for r in rows}  # in-memory parse, not the DB's pre-upsert state
+            with conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT clean_name FROM analytics.r365_modifier_cost WHERE period = %s", (prior_period,))
+                prior_clean_names = {r[0] for r in cur.fetchall()}
+            dropped = sorted(prior_clean_names - current_clean_names)
+            if dropped:
+                preview = ", ".join(dropped[:15]) + (f" ... (+{len(dropped) - 15} more)" if len(dropped) > 15 else "")
+                log.warning(
+                    "r365-modifier-cost: %s — %d clean_name(s) present in %s but missing here: %s",
+                    path.name, len(dropped), prior_period, preview,
+                )
 
         with conn.cursor() as cur:
             cur.executemany(

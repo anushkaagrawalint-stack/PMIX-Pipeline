@@ -20,12 +20,19 @@ CREATE TABLE IF NOT EXISTS analytics.pc_modifier_unit_cost_new (
       norm_name TEXT NOT NULL,
       pnum      INT  NOT NULL,
       unit_cost NUMERIC NOT NULL,
+      src_pnum  INT  NOT NULL,
       PRIMARY KEY (norm_name, pnum)
     );
 
 TRUNCATE analytics.pc_modifier_unit_cost_new;
 
-INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost)
+-- src_pnum: the period this row's cost actually came from — equals pnum for a
+-- direct match or a same-period structural derivation (extra/organic/1-2/side
+-- variants, the hardcoded chutney cost, skip/no zeros), or an OLDER period
+-- when falling back to the closest prior period's direct cost. Lets readers
+-- (Pink Sheets) flag "this is a stale/borrowed cost, not this period's own."
+-- Mirrors the unit_cost CASE below branch-for-branch — keep them in sync.
+INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost, src_pnum)
     WITH _mi AS (
       SELECT LOWER(clean_name) AS clean_name, cost_per_portion,
              RIGHT(period,4)::INT * 100 + SUBSTRING(period,2,2)::INT AS pnum
@@ -56,7 +63,7 @@ INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost)
       WHERE m.pnum <= pr.pnum
     ),
     _primary AS (
-      SELECT DISTINCT ON (norm_name, target_pnum) norm_name, target_pnum, cost_per_portion
+      SELECT DISTINCT ON (norm_name, target_pnum) norm_name, target_pnum, cost_per_portion, src_pnum
       FROM _cands ORDER BY norm_name, target_pnum, src_pnum DESC, is_direct DESC
     )
     SELECT pr.norm_name, pr.pnum,
@@ -86,7 +93,33 @@ INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost)
              AND p2.target_pnum = pr.pnum), 0)
         WHEN pr.norm_name IN ('spicy mango chutney', 'spicy mango chutney - side') THEN 0.1777
         ELSE 0
-      END::NUMERIC
+      END::NUMERIC AS unit_cost,
+      CASE
+        WHEN pr.norm_name LIKE 'skip %' OR pr.norm_name LIKE 'no %' THEN pr.pnum
+        WHEN p.cost_per_portion IS NOT NULL THEN p.src_pnum
+        WHEN pr.norm_name LIKE 'extra organic %' THEN COALESCE(
+          (SELECT p2.src_pnum FROM _primary p2
+           WHERE p2.norm_name = SUBSTRING(pr.norm_name FROM 15) AND p2.target_pnum = pr.pnum), pr.pnum)
+        WHEN pr.norm_name LIKE 'extra %' THEN COALESCE(
+          (SELECT p2.src_pnum FROM _primary p2
+           WHERE p2.norm_name = SUBSTRING(pr.norm_name FROM 7) AND p2.target_pnum = pr.pnum), pr.pnum)
+        WHEN pr.norm_name LIKE 'organic %' THEN COALESCE(
+          (SELECT p2.src_pnum FROM _primary p2
+           WHERE p2.norm_name = SUBSTRING(pr.norm_name FROM 9) AND p2.target_pnum = pr.pnum), pr.pnum)
+        WHEN pr.norm_name LIKE '1/2 %' THEN COALESCE(
+          (SELECT p2.src_pnum FROM _primary p2
+           WHERE p2.norm_name = REGEXP_REPLACE(SUBSTRING(pr.norm_name FROM 5), '^and ', '', 'i')
+             AND p2.target_pnum = pr.pnum), pr.pnum)
+        WHEN pr.norm_name LIKE '% - side' THEN COALESCE(
+          (SELECT p2.src_pnum FROM _primary p2
+           WHERE p2.norm_name = LEFT(pr.norm_name, LENGTH(pr.norm_name) - 7)
+             AND p2.target_pnum = pr.pnum), pr.pnum)
+        WHEN pr.norm_name LIKE 'side of %' THEN COALESCE(
+          (SELECT p2.src_pnum FROM _primary p2
+           WHERE p2.norm_name = SUBSTRING(pr.norm_name FROM 9)
+             AND p2.target_pnum = pr.pnum), pr.pnum)
+        ELSE pr.pnum
+      END AS src_pnum
     FROM _pairs pr
     LEFT JOIN _primary p ON p.norm_name = pr.norm_name AND p.target_pnum = pr.pnum;
 
