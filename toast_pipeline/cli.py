@@ -484,6 +484,13 @@ def cmd_load_lookups(args: argparse.Namespace) -> None:
     conn.close()
 
 
+def _derive_modifier_clean_name(recipe_name: str) -> str:
+    """Column B fallback when the sheet omits it — mirrors the spreadsheet
+    formula =TRIM(SUBSTITUTE(A2,"MI ",""))). Excel's TRIM also collapses
+    internal whitespace runs, not just leading/trailing, hence the regex."""
+    return re.sub(r"\s+", " ", recipe_name.replace("MI ", "")).strip()
+
+
 def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
     """Load all P*ModifierCost.xlsx from Data/R365Data/ModifierCost/ into analytics.r365_modifier_cost."""
     import openpyxl
@@ -510,6 +517,7 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
 
         seen: set[str] = set()
         rows = []
+        missing_clean_name = 0
         for row in ws.iter_rows(min_row=2, values_only=True):
             recipe_name = str(row[0]).strip() if row[0] else None
             if not recipe_name or recipe_name in seen:
@@ -524,15 +532,27 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
                 except InvalidOperation:
                     return None
 
+            clean_name = str(row[1]).strip() if len(row) > 1 and row[1] else None
+            if not clean_name:
+                missing_clean_name += 1
+                clean_name = _derive_modifier_clean_name(recipe_name)
+
             rows.append((
                 period,
                 recipe_name,
-                str(row[1]).strip() if row[1] else None,   # clean_name
+                clean_name,
                 str(row[14]).strip() if row[14] else None,  # portion_unit
                 str(row[16]).strip() if row[16] else None,  # cogs_account
                 _cost(row[25]),                             # total_cost
                 _cost(row[26]),                             # cost_per_portion
             ))
+
+        if missing_clean_name:
+            log.warning(
+                "r365-modifier-cost: %s — clean_name (column B) missing for %d/%d rows; "
+                "derived via TRIM(SUBSTITUTE(A,\"MI \",\"\")) instead",
+                path.name, missing_clean_name, len(rows),
+            )
 
         with conn.cursor() as cur:
             cur.executemany(
