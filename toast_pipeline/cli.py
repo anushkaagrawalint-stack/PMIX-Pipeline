@@ -772,7 +772,8 @@ def _normalize_r365_item_name(raw: str) -> str:
 
 _NAME_CONSOLIDATIONS = [
     # Retail match merges (vendor-prefix → canonical retail name)
-    ("Fooda Chicken Tikka Masala",        "Chicken Tikka Masala"),
+    # NOTE: Fooda Chicken Tikka Masala is deliberately NOT merged here — Rahul
+    # confirmed it's a distinct item from retail "Chicken Tikka Masala".
     ("Cureate Spicy Chili Chicken Bowl",  "Spicy Chili Chicken Bowl"),
     ("Fooda Mango Lassi",                 "Mango Lassi"),
     ("Eurest Mango Lassi",                "Mango Lassi"),
