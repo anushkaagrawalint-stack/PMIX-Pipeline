@@ -29,6 +29,12 @@ from .parse.orders import parse_order
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("cli")
 
+# Locations permanently closed / no longer reachable via Toast's live API.
+# Excluded from the default `run` (scheduled pull) only — `reparse` and direct
+# DB work still resolve these via config.load_locations() since they don't
+# call the live API, so historical data stays fully manipulable.
+CLOSED_LOCATIONS = {"BALLPARK"}
+
 
 def _pull_location(loc: config.Location, run_id: int, start: date, end: date) -> dict:
     """One worker per location: own connection, own lookups, own batch."""
@@ -82,6 +88,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     if args.locations:
         wanted = {c.strip().upper() for c in args.locations.split(",")}
         locs = [l for l in locs if l.code.upper() in wanted]
+    else:
+        locs = [l for l in locs if l.code.upper() not in CLOSED_LOCATIONS]
 
     end = date.fromisoformat(args.end) if args.end else date.today() - timedelta(days=1)
     start = (date.fromisoformat(args.start) if args.start
