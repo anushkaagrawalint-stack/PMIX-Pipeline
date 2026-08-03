@@ -524,6 +524,145 @@ _KNOWN_CLEAN_NAME_FIXES: dict[str, str] = {
     "MI Sautéed Spinach - Side": "Sauteed Spinach - Side",
     "MI HUNGRY Sautéed Spinach": "HUNGRY Sauteed Spinach",
     "MI That Fire Hot Sauce - Bottle": "That Fire Hot Sauce (Bottle)",
+    # Below: bulk-added from Rahul's modifier/catering reconciliation lists
+    # (MODIFIER_COST_KNOWN_FIXES.md). Two categories were deliberately held back:
+    #   1. 13 recipe_names that would need two different clean_names depending on
+    #      context (e.g. "MI Lamb Kebab Meatballs" -> both "Lamb Kebab" and "Extra
+    #      Lamb Kebab") — a single recipe row can only hold one clean_name.
+    #   2. 23 recipe_names whose clean_name is ALSO a real modifier in the current
+    #      IH/Online dashboard (e.g. "MI Basmati Rice" -> "Basmati Rice", used in
+    #      BYO Grain Bowl today) — scope for now is catering/catering-3pd/offsite
+    #      only, per explicit instruction; don't auto-touch anything the live
+    #      non-catering dashboard already reads. From P7 onward, ask before adding
+    #      any new fix outside that catering scope.
+    # Both categories need a human call and are surfaced instead via the
+    # r365-modifier-cost review-flag mechanism below.
+    "MI Arugula - Classic": "Arugula - Classic",
+    "MI Arugula - Party Pack": "Arugula - Party Pack",
+    "MI Baby Spinach - Classic": "Baby Spinach - Classic",
+    "MI Baby Spinach - Party Pack": "Baby Spinach - Party Pack",
+    "MI Basmati Rice - Catering - Additional Item": "Catering - Additional Item - Basmati Rice",
+    "MI Basmati Rice - Classic": "Basmati Rice - Classic",
+    "MI Basmati Rice - Party Pack": "Basmati Rice - Party Pack",
+    "MI Butter Chicken Burrito - In House": "Butter Chicken Burrito",
+    "MI Carrot Slaw - Classic": "Carrot Slaw - Classic",
+    "MI Carrot Slaw - Party Pack": "Carrot Slaw - Party Pack",
+    "MI Cauliflower + Potato - Catering - Additional Item": "Catering - Additional Item - Cauliflower + Potato",
+    "MI Cauliflower + Potato - Classic": "Cauliflower + Potato - Classic",
+    "MI Cauliflower + Potato - Party Pack": "Cauliflower + Potato - Party Pack",
+    "MI Chicken Tikka - Catering - Additional Item": "Catering - Additional Item - Chicken Tikka",
+    "MI Chicken Tikka - Classic": "Chicken Tikka - Classic",
+    "MI Chicken Tikka - Party Pack": "Chicken Tikka - Party Pack",
+    "MI Coconut Ginger - Catering - Additional Item": "Catering - Additional Item - Coconut Ginger",
+    "MI Coconut Ginger - Classic": "Coconut Ginger - Classic",
+    "MI Coconut Ginger - Party Pack": "Coconut Ginger - Party Pack",
+    "MI Combo Naan Basket Large": "Combo Naan - Large (serves 20)",
+    "MI Combo Naan Basket Small": "Combo Naan - Small (serves 10)",
+    "MI Cucumber Cubes - Classic": "Cucumber Cubes - Classic",
+    "MI Cucumber Cubes - Party Pack": "Cucumber Cubes - Party Pack",
+    "MI Garlic Naan Basket Large": "Garlic Naan - Large (serves 20)",
+    "MI HUNGRY Harvest Veggies": "HUNGRY Harvest Vegetables",
+    "MI House Vinaigrette Dressing - Classic": "Chili Lime Vinaigrette - Classic",
+    "MI House Vinaigrette Dressing - Party Pack": "Chili Lime Vinaigrette - Party Pack",
+    "MI Indian Street Corn - Classic": "Indian Street Corn - Classic",
+    "MI Indian Street Corn - Party Pack": "Indian Street Corn - Party Pack",
+    "MI Kachumber Salad - Classic": "Kachumber Salad - Classic",
+    "MI Kachumber Salad - Party Pack": "Kachumber Salad - Party Pack",
+    "MI Kokum Punch - 1 Gallon": "Kokum Punch - 1 Gallon",
+    "MI Kokum Vinaigrette Dressing - Classic": "Kokum Vinaigrette Dressing - Classic",
+    "MI Kokum Vinaigrette Dressing - Party Pack": "Kokum Vinaigrette Dressing - Party Pack",
+    "MI Lamb Kebab - Catering - Additional Item": "Catering - Additional Item - Lamb Kebab",
+    "MI Lamb Kebab - Classic": "Lamb Kebab - Classic",
+    "MI Lamb Kebab - Party Pack": "Lamb Kebab - Party Pack",
+    "MI Lemon Turmeric Rice - Catering - Additional Item": "Catering - Additional Item - Lemon Turmeric Rice",
+    "MI Lemon Turmeric Rice - Classic": "Lemon Turmeric Rice - Classic",
+    "MI Lemon Turmeric Rice - Party Pack": "Lemon Turmeric Rice - Party Pack",
+    "MI Mango Salsa - Classic": "Mango Salsa - Classic",
+    "MI Mango Salsa - Party Pack": "Mango Salsa - Party Pack",
+    "MI Masala Chai Cookies - 10": "10 Chai Cookie Basket",
+    "MI Masala Chai Cookies - 100": "100 Chai Cookie Basket",
+    "MI Masala Chai Cookies - 20": "20 Chai Cookie Basket",
+    "MI Masala Chai Cookies - 30": "30 Chai Cookie Basket",
+    "MI Masala Chai Cookies - 50": "50 Chai Cookie Basket",
+    "MI Masala Quinoa - Catering - Additional Item": "Catering - Additional Item - Masala Quinoa",
+    "MI Masala Quinoa - Classic": "Masala Quinoa - Classic",
+    "MI Masala Quinoa - Party Pack": "Masala Quinoa - Party Pack",
+    "MI Mint Cardamom Limeade - 1 Gallon": "Mint Cardamom Limeade - 1 Gallon",
+    "MI Mint Cilantro Chutney - Classic": "Mint Cilantro Chutney - Classic",
+    "MI Mint Cilantro Chutney - Party Pack": "Mint Cilantro Chutney - Party Pack",
+    "MI Peanut Sesame - Catering - Additional Item": "Catering - Additional Item - Peanut Sesame",
+    "MI Peanut Sesame - Classic": "Peanut Sesame - Classic",
+    "MI Peanut Sesame - Party Pack": "Peanut Sesame - Party Pack",
+    "MI Pickled Onions - Classic": "Pickled Onions - Classic",
+    "MI Pickled Onions - Party Pack": "Pickled Onions - Party Pack",
+    "MI Plain Naan Basket Large": "Plain Naan - Large (serves 20)",
+    "MI Roasted Lentils - Classic": "Roasted Lentils - Classic",
+    "MI Roasted Lentils - Party Pack": "Roasted Lentils - Party Pack",
+    "MI Samosa Tray - 10": "Samosa Tray - 10 Pieces",
+    "MI Samosa Tray - 100": "Samosa Tray - 100 Pieces",
+    "MI Samosa Tray - 20": "Samosa Tray - 20 Pieces",
+    "MI Samosa Tray - 50": "Samosa Tray - 50 Pieces",
+    "MI Sauteed Spinach - Catering - Additional Item": "Catering - Additional Item - Sauteed Spinach",
+    "MI Sexygreens - Classic": "Sexygreens - Classic",
+    "MI Sexygreens - Party Pack": "Sexygreens - Party Pack",
+    "MI Shredded Paneer - Classic": "Shredded Paneer Cheese - Classic",
+    "MI Shredded Paneer - Party Pack": "Shredded Paneer Cheese - Party Pack",
+    "MI South Indian Rice Noodles - Catering - Additional Item": "Catering - Additional Item - South Indian Rice Noodles",
+    "MI South Indian Rice Noodles - Classic": "South Indian Rice Noodles - Classic",
+    "MI South Indian Rice Noodles - Party Pack": "South Indian Rice Noodles - Party Pack",
+    "MI Spiced Chickpeas - Catering - Additional Item": "Catering - Additional Item - Spiced Chickpeas",
+    "MI Spiced Chickpeas - Classic": "Spiced Chickpeas - Classic",
+    "MI Spiced Chickpeas - Party Pack": "Spiced Chickpeas - Party Pack",
+    "MI Spicy Chicken Burrito - In House": "Spicy Chicken Burrito",
+    "MI Spicy Chili Chicken - Classic": "Spicy Chili Chicken - Classic",
+    "MI Spicy Chili Chicken - Party Pack": "Spicy Chili Chicken - Party Pack",
+    "MI Sweet Tamarind Chutney": "Sweet Tamarind - Classic",
+    "MI Tamarind Chili - Catering - Additional Item": "Catering - Additional Item - Tamarind Chili (Spicy)",
+    "MI Tamarind Chili - Classic": "Tamarind Chili (Spicy) - Classic",
+    "MI Tamarind Chili - Party Pack": "Tamarind Chili (Spicy) - Party Pack",
+    "MI Tamarind Ginger Chutney - Classic": "Ginger Tamarind Chutney - Classic",
+    "MI Tamarind Ginger Chutney - Party Pack": "Ginger Tamarind Chutney - Party Pack",
+    "MI Tandoori Paneer - Catering - Additional Item": "Catering - Additional Item - Tandoori Paneer",
+    "MI Tandoori Paneer - Classic": "Tandoori Paneer - Classic",
+    "MI Tandoori Paneer - Party Pack": "Tandoori Paneer - Party Pack",
+    "MI Tandoori Paneer Burrito - In House": "Tandoori Paneer Burrito",
+    "MI Tikka Masala - Catering - Additional Item": "Catering - Additional Item - Tikka Masala",
+    "MI Tikka Masala - Classic": "Tikka Masala - Classic",
+    "MI Tikka Masala - Party Pack": "Tikka Masala - Party Pack",
+    "MI Toasted Cumin Yogurt - Classic": "Toasted Cumin Yogurt - Classic",
+    "MI Toasted Cumin Yogurt - Party Pack": "Toasted Cumin Yogurt - Party Pack",
+    "MI Tomato Garlic - Catering - Additional Item": "Catering - Additional Item - Tomato Garlic (Butter Masala)",
+    "MI Tomato Garlic - Classic": "Tomato Garlic (Mild) - Classic",
+    "MI Tomato Garlic - Party Pack": "Tomato Garlic (Mild) - Party Pack",
+    "MI Turmeric Ginger Lemonade - 1 Gallon": "Turmeric Ginger Lemonade - 1 Gallon",
+    "MI Vegan Veggie Burrito - In House": "Vegan Veggie Burrito",
+    "MI Zerocater Chicken Tikka": "ZeroCater - Chicken Tikka",
+    "MI Zerocater Chili Lime Vinaigrette": "ZeroCater - Chili Lime Vinaigrette",
+    "MI Zerocater Kachumber Salad": "ZeroCater - Kachumber Salad",
+    "MI Zerocater Lamb Kebab Meatballs": "ZeroCater - Lamb Kebab Meatballs",
+    "MI Zerocater Lemon Turmeric Rice": "ZeroCater - Lemon Turmeric Rice",
+    "MI Zerocater Sautéed Spinach": "ZeroCater - Sautéed Spinach",
+    # Resolved conflicts (owner confirmed 2026-08-01): recipe used two different
+    # names depending on context — owner picked which one is the recipe's real
+    # clean_name; the other name needs the separate modifier-name->recipe lookup
+    # (MODIFIER_COST_KNOWN_FIXES.md), not a clean_name override, since it's not
+    # this recipe's own identity. Verified zero current IH/Online usage either
+    # way — catering-only, safe under the P6 scope restriction.
+    "MI Garlic Naan Basket Small": "Garlic Naan - Small (serves 10)",
+    # Correction (2026-08-03): "Plain Naan - Small (serves 10)" was originally
+    # thought to share MI Garlic Naan Basket Small's recipe — wrong. It's a
+    # genuinely separate recipe with its own real cost data every period.
+    # Same pattern as the already-correct "MI Plain Naan Basket Large" ->
+    # "Plain Naan - Large (serves 20)". Verified zero IH/Online usage.
+    "MI Plain Naan Basket Small": "Plain Naan - Small (serves 10)",
+    # "Roasted Vegetables" confirmed (owner, 2026-08-03) as the correct clean_name
+    # for the whole MI Harvest Veggies family — "Harvest Vegetables ..." was noise/
+    # a duplicate in the source sheet. NOTE: "MI Harvest Veggies - Kids" is
+    # deliberately NOT included here — "Roasted Vegetables - Kids" is used by the
+    # current live Kids Meal item, out of scope under the catering-only restriction.
+    "MI Harvest Veggies - Classic": "Roasted Vegetables - Classic",
+    "MI Harvest Veggies - Party Pack": "Roasted Vegetables - Party Pack",
+    "MI Harvest Vegetables - Catering - Additional Item": "Catering - Additional Item - Roasted Vegetables",
 }
 
 
@@ -540,6 +679,13 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
     sql_path = Path(__file__).resolve().parents[1] / "sql" / "011_analytics_modifier_cost.sql"
     conn.execute(sql_path.read_text())
     conn.commit()
+
+    # Ground truth for the review-flag check below: every clean_name that has
+    # actually been ordered by a real guest, ever. Built once — doesn't change
+    # per period file.
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT LOWER(canonical_name) FROM public.fact_modifiers")
+        real_modifier_names = {r[0] for r in cur.fetchall()}
 
     for path in files:
         m = re.match(r"P(\d{2})(\d{4})ModifierCost", path.stem, re.IGNORECASE)
@@ -608,13 +754,15 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
             pm = re.match(r"P(\d{2})-(\d{4})", p)
             return (int(pm.group(2)), int(pm.group(1))) if pm else (0, 0)
 
+        prior_recipe_to_clean: dict[str, str] = {}
         prior_periods = [p for p in existing_periods if _period_key(p) < _period_key(period)]
         if prior_periods:
             prior_period = max(prior_periods, key=_period_key)
             current_clean_names = {r[2] for r in rows}  # in-memory parse, not the DB's pre-upsert state
             with conn.cursor() as cur:
-                cur.execute("SELECT DISTINCT clean_name FROM analytics.r365_modifier_cost WHERE period = %s", (prior_period,))
-                prior_clean_names = {r[0] for r in cur.fetchall()}
+                cur.execute("SELECT recipe_name, clean_name FROM analytics.r365_modifier_cost WHERE period = %s", (prior_period,))
+                prior_recipe_to_clean = dict(cur.fetchall())
+            prior_clean_names = set(prior_recipe_to_clean.values())
             dropped = sorted(prior_clean_names - current_clean_names)
             if dropped:
                 preview = ", ".join(dropped[:15]) + (f" ... (+{len(dropped) - 15} more)" if len(dropped) > 15 else "")
@@ -622,6 +770,46 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
                     "r365-modifier-cost: %s — %d clean_name(s) present in %s but missing here: %s",
                     path.name, len(dropped), prior_period, preview,
                 )
+
+        # Flag genuine clean_name drift before this gets trusted — R365's clean_name
+        # can be wrong in ways _KNOWN_CLEAN_NAME_FIXES doesn't cover yet (that dict
+        # only has cases already found by hand; see MODIFIER_COST_KNOWN_FIXES.md).
+        # Only flag a recipe if its clean_name is NEW or CHANGED since the prior
+        # period AND the new value has zero real orders — a stable clean_name that's
+        # always been low-volume/rare (there are hundreds of those in a menu this
+        # size) is not a bug and would just be noise here.
+        flagged = []
+        for _, recipe_name, clean_name, _, _, _, cost_per_portion in rows:
+            rn_upper = recipe_name.upper()
+            if rn_upper.startswith("TEST") or rn_upper.startswith("BATCH") or rn_upper.startswith("NEST"):
+                continue  # internal prep/test recipes, never customer-facing
+            cn_lower = clean_name.lower()
+            if cn_lower.startswith("skip ") or cn_lower.startswith("no "):
+                continue  # deliberate zero-cost markers (see pc_refresh.sql)
+            if prior_recipe_to_clean.get(recipe_name) == clean_name:
+                continue  # unchanged since last period — not new drift
+            if cn_lower not in real_modifier_names:
+                flagged.append((recipe_name, clean_name, cost_per_portion))
+
+        if flagged:
+            error_dir = Path(__file__).resolve().parents[1] / "error"
+            error_dir.mkdir(exist_ok=True)
+            out_path = error_dir / f"{period}_modifier_cost_review.xlsx"
+            review_wb = openpyxl.Workbook()
+            review_ws = review_wb.active
+            review_ws.title = "review"
+            review_ws.append(["period", "recipe_name", "clean_name (current)", "cost_per_portion", "correct_clean_name"])
+            for recipe_name, clean_name, cost_per_portion in flagged:
+                review_ws.append([
+                    period, recipe_name, clean_name,
+                    float(cost_per_portion) if cost_per_portion is not None else None,
+                    None,
+                ])
+            review_wb.save(out_path)
+            log.warning(
+                "r365-modifier-cost: %s — %d clean_name(s) have no matching real order; written to %s for review",
+                path.name, len(flagged), out_path,
+            )
 
         with conn.cursor() as cur:
             cur.executemany(
