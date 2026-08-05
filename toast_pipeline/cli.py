@@ -935,7 +935,13 @@ _R365_ITEM_CANONICAL: dict[str, str] = {
     "kids byo":             "Kids Meal",
     "burrito":              "BYO Indian Burrito",
     # Retail merges (from consolidation review)
-    "fooda chicken tikka masala":         "Chicken Tikka Masala",
+    # NOTE: Fooda Chicken Tikka Masala is deliberately NOT merged here — Rahul
+    # confirmed it's a distinct item from retail "Chicken Tikka Masala" (see
+    # _NAME_CONSOLIDATIONS below). It was wrongly merged here until 2026-08-05,
+    # silently colliding item-cost matching with the real Chicken Tikka Masala
+    # catering row (both resolved to the same item_name_updated, so the
+    # DISTINCT ON "freshest row" pick in the dashboard's base-cost CTE could
+    # give either item the other's cost).
     "cureate spicy chili chicken bowl":   "Spicy Chili Chicken Bowl",
     "fooda mango lassi":                  "Mango Lassi",
     "eurest mango lassi":                 "Mango Lassi",
