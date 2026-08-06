@@ -616,7 +616,14 @@ _KNOWN_CLEAN_NAME_FIXES: dict[str, str] = {
     "MI Spicy Chicken Burrito - In House": "Spicy Chicken Burrito",
     "MI Spicy Chili Chicken - Classic": "Spicy Chili Chicken - Classic",
     "MI Spicy Chili Chicken - Party Pack": "Spicy Chili Chicken - Party Pack",
-    "MI Sweet Tamarind Chutney": "Sweet Tamarind - Classic",
+    # NOTE: "MI Sweet Tamarind Chutney" is NOT force-mapped to "Sweet Tamarind -
+    # Classic" here (was, until 2026-08-05) -- that recipe's real/natural
+    # clean_name is bare "Sweet Tamarind Chutney", a real, heavily-used
+    # APP/TPD modifier (see fact_modifiers). Forcing it globally broke that
+    # channel's costing to get catering's "Sweet Tamarind - Classic" a cost.
+    # Catering's redirect to this same shared recipe lives in the dashboard's
+    # CATERING_MOD_ALIAS_CTE instead (mod_alias, lib/queries.ts), which is
+    # catering-query-scoped only and can't touch IH/Online.
     "MI Tamarind Chili - Catering - Additional Item": "Catering - Additional Item - Tamarind Chili (Spicy)",
     "MI Tamarind Chili - Classic": "Tamarind Chili (Spicy) - Classic",
     "MI Tamarind Chili - Party Pack": "Tamarind Chili (Spicy) - Party Pack",

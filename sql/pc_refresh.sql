@@ -40,7 +40,7 @@ INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost, src
       WHERE recipe_name LIKE 'MI %' AND cost_per_portion > 0
     ),
     _names AS (
-      SELECT DISTINCT LOWER(CASE WHEN canonical_name LIKE '% -*' THEN LEFT(canonical_name, LENGTH(canonical_name) - 3) ELSE canonical_name END) AS norm_name
+      SELECT DISTINCT LOWER(REGEXP_REPLACE(canonical_name, '\s*-\s*\*$', '')) AS norm_name
       FROM public.fact_modifiers
     ),
     _pnums AS (
@@ -168,6 +168,37 @@ INSERT INTO analytics.pc_modifier_daily_new
       ('Pick 2 Combo Plate - In House','Pick 2 Combo Plate'),
       ('Tandoori Paneer Burrito - In House','Tandoori Paneer Burrito'),
       ('Butter Chicken Burrito - In House','Butter Chicken Burrito')
+    ),
+    -- Display-only aliases for real order-time modifier names that are the SAME
+    -- item as another real order-time name (verified via live volume + the
+    -- item's own R365 recipe -- both names resolve to one recipe/cost), but
+    -- differ in raw text so they'd otherwise show as two separate rows in
+    -- Entree Mix. Deliberately does NOT touch mod_norm/cost resolution below --
+    -- costing already resolves both names correctly on its own; this only
+    -- unifies the display grouping. (owner-reported 2026-08-06)
+    --   Tandoori Paneer / Organic Tandoori Paneer: both used concurrently every
+    --   month, not a rename -- same R365 recipe (MI Tandoori Paneer -> clean
+    --   name "Organic Tandoori Paneer"), just captured under 2 order-time labels.
+    --   Chickpea Noodles -> Crispy Chickpea Noodles: clean cutover 2026-04-08,
+    --   same R365 recipe (MI Chickpea Noodles) renamed on the menu.
+    --   Turmeric Ginger Lemonade -> Golden Ginger Lemonade: clean cutover
+    --   2026-03-27, same R365 recipe (MI Turmeric Ginger Lemonade) renamed.
+    --   Unsweetened Spiced Tea -> Unsweetened Black Tea: clean cutover
+    --   2026-04-02, same R365 recipe (MI Unsweetened Spiced Tea) renamed.
+    --   Mint Cardamon Limeade (typo) -> Mint Cardamom Limeade -> Mint Limeade:
+    --   two clean cutovers (2026-02-03, 2026-03-26), same R365 recipe (MI Mint
+    --   Cardamom Limeade) renamed twice; both older names merge into the
+    --   current live name.
+    --   Kokum Punch -> Ruby Citrus Cooler: clean cutover 2026-03-27, same
+    --   recipe renamed on the menu.
+    mod_display_fix(raw, clean) AS (VALUES
+      ('Organic Tandoori Paneer',  'Tandoori Paneer'),
+      ('Chickpea Noodles',         'Crispy Chickpea Noodles'),
+      ('Turmeric Ginger Lemonade', 'Golden Ginger Lemonade'),
+      ('Unsweetened Spiced Tea',   'Unsweetened Black Tea'),
+      ('Mint Cardamon Limeade',    'Mint Limeade'),
+      ('Mint Cardamom Limeade',    'Mint Limeade'),
+      ('Kokum Punch',              'Ruby Citrus Cooler')
     )
     SELECT
       fol.business_date,
@@ -184,8 +215,8 @@ INSERT INTO analytics.pc_modifier_daily_new
   WHEN fol.menu_name = 'OFFSITE POP-UPS'                         THEN 'OFFSITE'
   WHEN fol.menu_name IS NULL                                      THEN 'OPEN_ITEMS'
   ELSE 'OFFSITE' END))                                             AS channel,
-      CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END                        AS mod_display,
-      LOWER(CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END)                         AS mod_norm,
+      COALESCE(mdf.clean, REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', ''))  AS mod_display,
+      LOWER(REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', ''))                         AS mod_norm,
       mt.modifier_type                                     AS section_base,
       mt.from_item_type                                    AS from_item_type,
       pit.item_type                                        AS pit_item_type,
@@ -198,17 +229,27 @@ INSERT INTO analytics.pc_modifier_daily_new
         OR fm.canonical_name = 'That Fire Hot Sauce'
       )                                                    AS include_cmc,
       bt.byo_type                                          AS byo_type,
+      -- Homemade Juice / Maine Root Fountain Soda: only count the REAL flavor
+      -- pick (Toast's own option_group_name for that choice), not every other
+      -- modifier-shaped thing on the same line -- guests also attach free-text
+      -- special instructions ("No ice please", "Item special instructions:
+      -- (Please label for ...)") as modifier-like rows, which would otherwise
+      -- get counted as bogus "flavors" alongside the real ones (owner-reported
+      -- 2026-08-06).
       COALESCE(
         UPPER(fol.menu_group) IN (
           'BOWLS','BUILD YOUR OWN BOWL','BYO','CHEF CURATED BOWLS',
           'PLATES','CLASSIC INDIAN PLATES','BURRITOS','INDIAN BURRITOS','KIDS','KIDS MEAL')
         OR fol.canonical_name IN (
           'Side of Main','Side of Grain','Side of Sauce','Side of Veggie',
-          'Homemade Juice','Handcrafted Juice for a Group - 1/2 Gallon')
+          'Handcrafted Juice for a Group - 1/2 Gallon')
+        OR (fol.canonical_name = 'Homemade Juice' AND fm.option_group_name = 'Flavor?')
+        OR (fol.canonical_name = 'Maine Root Fountain Soda' AND fm.option_group_name = 'Maine Root Flavor?')
       , FALSE)                                             AS in_byo_scope,
       SUM(fm.quantity)                                     AS qty
     FROM public.fact_modifiers fm
     JOIN public.fact_order_lines fol ON fm.parent_selection = fol.selection_guid
+    LEFT JOIN mod_display_fix mdf ON mdf.raw = REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '')
     LEFT JOIN analytics.channel_overrides co ON co.selection_guid = fol.selection_guid
     LEFT JOIN public.dim_fiscal_period fp
            ON fol.business_date >= fp.start_date::DATE
@@ -234,19 +275,19 @@ INSERT INTO analytics.pc_modifier_daily_new
     CROSS JOIN LATERAL (
       SELECT COALESCE(
         known.t,
-        CASE WHEN LOWER(CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END) = 'that fire hot sauce' THEN 'Chutney And Dressing' END,
+        CASE WHEN LOWER(REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '')) = 'that fire hot sauce' THEN 'Chutney And Dressing' END,
         CASE WHEN NOT EXISTS (
-          SELECT 1 FROM analytics.modifier_type WHERE modifier_name = CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END
+          SELECT 1 FROM analytics.modifier_type WHERE modifier_name = REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '')
         ) THEN pit.item_type END
       ) AS modifier_type,
       (known.t IS NULL
-       AND LOWER(CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END) <> 'that fire hot sauce'
+       AND LOWER(REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '')) <> 'that fire hot sauce'
        AND NOT EXISTS (
-         SELECT 1 FROM analytics.modifier_type WHERE modifier_name = CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END
+         SELECT 1 FROM analytics.modifier_type WHERE modifier_name = REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '')
        )) AS from_item_type
       FROM (
         SELECT (SELECT amt.modifier_type FROM analytics.modifier_type amt
-                WHERE amt.modifier_name = CASE WHEN fm.canonical_name LIKE '% -*' THEN LEFT(fm.canonical_name, LENGTH(fm.canonical_name) - 3) ELSE fm.canonical_name END
+                WHERE amt.modifier_name = REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '')
                   AND amt.modifier_type NOT LIKE 'Catering%'
                   AND amt.modifier_type NOT IN ('NA','ZeroCater','Plate - Main','Online')
                 ORDER BY (amt.item_type = pit.item_type) DESC NULLS LAST
