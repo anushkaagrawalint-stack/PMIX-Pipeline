@@ -57,6 +57,7 @@ INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost, src
   WHEN 'tamarind chili (spicy)'        THEN 'tamarind chili sauce'
   WHEN 'peanut sesame'                 THEN 'peanut sesame sauce'
   WHEN 'coconut ginger'                THEN 'coconut ginger sauce'
+  WHEN 'hungry tomato garlic'          THEN 'hungry tomato garlic sauce'
   WHEN 'tandoori paneer'               THEN 'organic tandoori paneer'
   WHEN 'romaine'                       THEN 'shredded romaine'
   ELSE pr.norm_name END)

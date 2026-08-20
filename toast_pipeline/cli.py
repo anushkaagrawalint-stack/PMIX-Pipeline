@@ -564,6 +564,10 @@ _KNOWN_CLEAN_NAME_FIXES: dict[str, str] = {
     "MI HUNGRY Harvest Veggies": "HUNGRY Harvest Vegetables",
     "MI House Vinaigrette Dressing - Classic": "Chili Lime Vinaigrette - Classic",
     "MI House Vinaigrette Dressing - Party Pack": "Chili Lime Vinaigrette - Party Pack",
+    # P07 export wrote this recipe's clean_name with a "Dressing" suffix it's
+    # never had before (owner confirmed 2026-08-20: same recipe as plain
+    # "Chili Lime Vinaigrette").
+    "MI Chili Lime Vinaigrette Dressing": "Chili Lime Vinaigrette",
     "MI Indian Street Corn - Classic": "Indian Street Corn - Classic",
     "MI Indian Street Corn - Party Pack": "Indian Street Corn - Party Pack",
     "MI Kachumber Salad - Classic": "Kachumber Salad - Classic",
