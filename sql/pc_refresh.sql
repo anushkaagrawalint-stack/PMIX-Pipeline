@@ -67,8 +67,26 @@ INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost, src
   WHEN 'sweet tamarind - classic'      THEN 'sweet tamarind chutney'
   WHEN 'harvest vegetables - classic'      THEN 'roasted vegetables - classic'
   WHEN 'harvest vegetables - party pack'   THEN 'roasted vegetables - party pack'
-  WHEN 'kids turmeric ginger lemonade' THEN 'golden ginger lemonade'
-  WHEN 'kids mint cardamon limeade'    THEN 'mint limeade'
+  -- R365 added dedicated Kids-portion recipes for these four drinks starting
+  -- P07-2026 (MI Kokum Punch - Kids, MI Unsweetened Spiced Tea - Kids,
+  -- MI Turmeric Ginger Lemonade - Kids, MI Mint Cardamom Limeade - Kids) --
+  -- previously there was no Kids-specific cost so Turmeric Ginger
+  -- Lemonade/Mint Cardamon Limeade borrowed the adult drink's cost, and
+  -- Kokum Punch/Unsweetened Spiced Tea fell through unresolved at $0.
+  -- Kids Golden Ginger Lemonade/Kids Mint Limeade (the live-menu renamed
+  -- raw names) were missing from this list entirely -- also $0 before now.
+  -- All raw order-time name variants (pre- and post- the live-menu rename,
+  -- same as Kokum Punch/Ruby Citrus Cooler above) route to the one Kids
+  -- recipe. Kids-only -- does not touch the adult resolution for any of
+  -- these four drinks.
+  WHEN 'kids kokum punch'              THEN 'kokum punch - kids'
+  WHEN 'kids ruby citrus cooler'       THEN 'kokum punch - kids'
+  WHEN 'kids unsweetened spiced tea'   THEN 'unsweetened spiced tea - kids'
+  WHEN 'kids turmeric ginger lemonade' THEN 'turmeric ginger lemonade - kids'
+  WHEN 'kids golden ginger lemonade'   THEN 'turmeric ginger lemonade - kids'
+  WHEN 'kids mint cardamon limeade'    THEN 'mint cardamom limeade - kids'
+  WHEN 'kids mint limeade'             THEN 'mint cardamom limeade - kids'
+  WHEN 'kids unsweetened black tea'    THEN 'unsweetened spiced tea - kids'
   WHEN 'tandoori paneer'               THEN 'organic tandoori paneer'
   WHEN 'romaine'                       THEN 'shredded romaine'
   ELSE pr.norm_name END)
