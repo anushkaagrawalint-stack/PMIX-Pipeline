@@ -221,6 +221,11 @@ INSERT INTO analytics.pc_modifier_daily_new
     --   current live name.
     --   Kokum Punch -> Ruby Citrus Cooler: clean cutover 2026-03-27, same
     --   recipe renamed on the menu.
+    --   Kids-tier equivalents of the 4 rename pairs above (same cutovers, Kids
+    --   Meal portion of the same recipe) -- unifies each Kids pair into one
+    --   display row same as the adult pair, but kept separate FROM the adult
+    --   row since Kids is a different portion size/cost (owner-reported
+    --   2026-08-24).
     mod_display_fix(raw, clean) AS (VALUES
       ('Organic Tandoori Paneer',  'Tandoori Paneer'),
       ('Chickpea Noodles',         'Crispy Chickpea Noodles'),
@@ -228,7 +233,11 @@ INSERT INTO analytics.pc_modifier_daily_new
       ('Unsweetened Spiced Tea',   'Unsweetened Black Tea'),
       ('Mint Cardamon Limeade',    'Mint Limeade'),
       ('Mint Cardamom Limeade',    'Mint Limeade'),
-      ('Kokum Punch',              'Ruby Citrus Cooler')
+      ('Kokum Punch',              'Ruby Citrus Cooler'),
+      ('Kids Turmeric Ginger Lemonade', 'Kids Golden Ginger Lemonade'),
+      ('Kids Unsweetened Spiced Tea',   'Kids Unsweetened Black Tea'),
+      ('Kids Mint Cardamon Limeade',    'Kids Mint Limeade'),
+      ('Kids Kokum Punch',              'Kids Ruby Citrus Cooler')
     )
     SELECT
       fol.business_date,
