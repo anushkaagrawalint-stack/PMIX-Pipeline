@@ -254,8 +254,22 @@ INSERT INTO analytics.pc_modifier_daily_new
   WHEN fol.menu_name = 'OFFSITE POP-UPS'                         THEN 'OFFSITE'
   WHEN fol.menu_name IS NULL                                      THEN 'OPEN_ITEMS'
   ELSE 'OFFSITE' END))                                             AS channel,
-      COALESCE(mdf.clean, REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', ''))  AS mod_display,
-      LOWER(REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', ''))                         AS mod_norm,
+      -- Kids Meal's own flavor picker (option_group_name = 'Kids Homemade
+      -- Juice') records most picks under the bare adult flavor name -- only a
+      -- minority happen to carry a "Kids " prefix in Toast's raw text (owner
+      -- confirmed 2026-08-24: there's no "adult" cost inside a Kids Meal order,
+      -- every pick in this group is a Kids-portion serving). Normalize every
+      -- pick in this group to its "Kids "-prefixed form before alias/display
+      -- resolution so Ruby Citrus Cooler etc. ordered AS a Kids Meal flavor
+      -- always routes to the Kids recipe cost/display, never the adult one.
+      COALESCE(mdf.clean, CASE WHEN fm.option_group_name = 'Kids Homemade Juice'
+        AND REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '') !~* '^no\s'
+        THEN 'Kids ' || REGEXP_REPLACE(REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', ''), '^Kids\s+', '', 'i')
+        ELSE REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '') END)  AS mod_display,
+      LOWER(CASE WHEN fm.option_group_name = 'Kids Homemade Juice'
+        AND REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '') !~* '^no\s'
+        THEN 'Kids ' || REGEXP_REPLACE(REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', ''), '^Kids\s+', '', 'i')
+        ELSE REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '') END)  AS mod_norm,
       mt.modifier_type                                     AS section_base,
       mt.from_item_type                                    AS from_item_type,
       pit.item_type                                        AS pit_item_type,
@@ -288,7 +302,10 @@ INSERT INTO analytics.pc_modifier_daily_new
       SUM(fm.quantity)                                     AS qty
     FROM public.fact_modifiers fm
     JOIN public.fact_order_lines fol ON fm.parent_selection = fol.selection_guid
-    LEFT JOIN mod_display_fix mdf ON mdf.raw = REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '')
+    LEFT JOIN mod_display_fix mdf ON mdf.raw = CASE WHEN fm.option_group_name = 'Kids Homemade Juice'
+        AND REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '') !~* '^no\s'
+      THEN 'Kids ' || REGEXP_REPLACE(REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', ''), '^Kids\s+', '', 'i')
+      ELSE REGEXP_REPLACE(fm.canonical_name, '\s*-\s*\*$', '') END
     LEFT JOIN analytics.channel_overrides co ON co.selection_guid = fol.selection_guid
     LEFT JOIN public.dim_fiscal_period fp
            ON fol.business_date >= fp.start_date::DATE
