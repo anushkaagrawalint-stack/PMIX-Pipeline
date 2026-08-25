@@ -252,6 +252,7 @@ INSERT INTO analytics.pc_modifier_daily_new
   WHEN fol.menu_name = 'CATERING'                                THEN 'CATERING'
   WHEN fol.menu_name = 'CATERING - 3PD'                          THEN 'CATERING_3PD'
   WHEN fol.menu_name = 'OFFSITE POP-UPS'                         THEN 'OFFSITE'
+  WHEN fol.menu_name = 'EZCATER'                                  THEN 'EZCATER'
   WHEN fol.menu_name IS NULL                                      THEN 'OPEN_ITEMS'
   ELSE 'OFFSITE' END))                                             AS channel,
       -- Kids Meal's own flavor picker (option_group_name = 'Kids Homemade
@@ -322,6 +323,7 @@ INSERT INTO analytics.pc_modifier_daily_new
   WHEN fol.menu_name = 'CATERING'                                THEN 'CATERING'
   WHEN fol.menu_name = 'CATERING - 3PD'                          THEN 'CATERING_3PD'
   WHEN fol.menu_name = 'OFFSITE POP-UPS'                         THEN 'OFFSITE'
+  WHEN fol.menu_name = 'EZCATER'                                  THEN 'EZCATER'
   WHEN fol.menu_name IS NULL                                      THEN 'OPEN_ITEMS'
   ELSE 'OFFSITE' END)) IN ('APP','TPD','TPD_MARKUP')
                    THEN 'Online' ELSE 'In House' END)
@@ -367,7 +369,7 @@ INSERT INTO analytics.pc_modifier_daily_new
       AND (
         fol.menu_name IN (
           'FOOD - IN HOUSE','DRINKS - IN HOUSE','APP','FOOD - TOAST ONLINE ORDERING',
-          'DELIVERY','3PD OPEN MARKUP','CATERING','CATERING - 3PD','OFFSITE POP-UPS')
+          'DELIVERY','3PD OPEN MARKUP','CATERING','CATERING - 3PD','OFFSITE POP-UPS','EZCATER')
         OR (fol.menu_name IS NULL AND fol.sales_category IN ('Food','Drink'))
       )
     GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13;
