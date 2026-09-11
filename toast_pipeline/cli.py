@@ -1003,6 +1003,15 @@ _NAME_CONSOLIDATIONS = [
     ("Cauliflower + Quinoa",    "Spiced Cauli + Quinoa Bowl"),
     ("Cauliflower + Quinoa Bowl","Spiced Cauli + Quinoa Bowl"),
     ("Kids BYO",                "Kids Meal"),
+    # "Old" deprecation-suffix items (owner-confirmed 2026-09-11) — Toast's own
+    # menu still runs these as separate live items (their own masterId/guid,
+    # still taking real orders), but they're the same recipe under RASA's
+    # "...Old" retirement-labeling convention, not a distinct dish — same recipe
+    # confirmed via Toast menu item descriptions before merging.
+    ("Lamb Kebab Bowl Old",               "Lamb Kebab Bowl"),
+    ("Harvest Chicken Bowl Old",          "Harvest Chicken Bowl"),
+    ("Cauliflower + Quinoa Old",          "Spiced Cauli + Quinoa Bowl"),
+    ("Chicken Tikka + Avocado Salad Old", "Chicken Tikka + Avocado Salad"),
 ]
 
 
