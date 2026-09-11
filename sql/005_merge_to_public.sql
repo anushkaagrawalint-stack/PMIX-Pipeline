@@ -1,7 +1,10 @@
 -- 005_merge_to_public.sql — upsert staging into public.
--- ON CONFLICT semantics: selections are immutable once written for a guid,
--- but Toast orders get modified (voids, refunds) — so we DO UPDATE on the
--- mutable flags/amounts. Overlapping fetch windows dedupe safely on PK.
+-- ON CONFLICT semantics: a selection_guid can be re-fetched with different
+-- values later — voids/refunds, but also quantity edits and catering orders
+-- whose business_date gets reassigned (rescheduled delivery) after the order
+-- was first ingested — so we DO UPDATE on every field Toast can still change
+-- post-ingestion, not just the void/refund flags. Overlapping fetch windows
+-- dedupe safely on PK.
 
 -- ---------------------------------------------------------------------------
 -- 1. Upsert dim_item from staging
@@ -68,7 +71,10 @@ LEFT JOIN LATERAL (
 ON CONFLICT (selection_guid) DO UPDATE SET
     is_voided      = EXCLUDED.is_voided,
     is_deferred    = EXCLUDED.is_deferred,
+    business_date  = EXCLUDED.business_date,
+    quantity       = EXCLUDED.quantity,
     line_total     = EXCLUDED.line_total,
+    pre_discount   = EXCLUDED.pre_discount,
     channel_code   = EXCLUDED.channel_code,
     canonical_name = EXCLUDED.canonical_name,
     menu_name      = COALESCE(EXCLUDED.menu_name, public.fact_order_lines.menu_name),

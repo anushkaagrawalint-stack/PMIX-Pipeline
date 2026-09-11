@@ -67,6 +67,15 @@ INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost, src
   WHEN 'sweet tamarind - classic'      THEN 'sweet tamarind chutney'
   WHEN 'harvest vegetables - classic'      THEN 'roasted vegetables - classic'
   WHEN 'harvest vegetables - party pack'   THEN 'roasted vegetables - party pack'
+  WHEN 'harvest vegetables'                THEN 'roasted vegetables'
+  -- Catering-only raw names (owner-confirmed 2026-09-11) -- these never occur
+  -- outside CATERING/CATERING_3PD, verified against live order data before
+  -- adding here.
+  WHEN 'chopped cilantro - classic'                          THEN 'chopped cilantro'
+  WHEN 'cilantro'                                             THEN 'chopped cilantro'
+  WHEN 'citrus chili vinaigrette - classic'                   THEN 'citrus chili vinaigrette'
+  WHEN 'chicken'                                              THEN 'chicken tikka'
+  WHEN 'catering - additional item - spicy chili chicken'     THEN 'spicy chili chicken - catering - additional item'
   -- R365 added dedicated Kids-portion recipes for these four drinks starting
   -- P07-2026 (MI Kokum Punch - Kids, MI Unsweetened Spiced Tea - Kids,
   -- MI Turmeric Ginger Lemonade - Kids, MI Mint Cardamom Limeade - Kids) --
@@ -89,7 +98,23 @@ INSERT INTO analytics.pc_modifier_unit_cost_new (norm_name, pnum, unit_cost, src
   WHEN 'kids unsweetened black tea'    THEN 'unsweetened spiced tea - kids'
   WHEN 'tandoori paneer'               THEN 'organic tandoori paneer'
   WHEN 'romaine'                       THEN 'shredded romaine'
-  ELSE pr.norm_name END)
+  ELSE pr.norm_name END,
+  -- The three OLD-raw-name Kids drink picks above only had ONE candidate
+  -- clean_name (the pre-P08 "X - Kids" convention), so once R365 renamed its
+  -- clean_name at P08 (to "Kids Y") they got stuck on that convention's last
+  -- period forever -- e.g. 'kids turmeric ginger lemonade' -> $0.4087 (P07)
+  -- even in P08+, while the NEW raw name 'kids golden ginger lemonade' already
+  -- had a second path (direct match against R365's own current clean_name) and
+  -- correctly picked up P08's $0.3863 via the freshest-period tie-break below.
+  -- Owner-confirmed 2026-09-11: same exception as the Ruby Citrus Cooler fix --
+  -- give the OLD raw names that same second path so both variants always
+  -- converge on whichever period's cost is actually freshest.
+  CASE pr.norm_name
+    WHEN 'kids kokum punch'              THEN 'kids ruby citrus cooler'
+    WHEN 'kids turmeric ginger lemonade' THEN 'kids golden ginger lemonade'
+    WHEN 'kids mint cardamon limeade'    THEN 'kids mint limeade'
+    ELSE NULL
+  END)
       WHERE m.pnum <= pr.pnum
     ),
     _primary AS (
@@ -237,7 +262,13 @@ INSERT INTO analytics.pc_modifier_daily_new
       ('Kids Turmeric Ginger Lemonade', 'Kids Golden Ginger Lemonade'),
       ('Kids Unsweetened Spiced Tea',   'Kids Unsweetened Black Tea'),
       ('Kids Mint Cardamon Limeade',    'Kids Mint Limeade'),
-      ('Kids Kokum Punch',              'Kids Ruby Citrus Cooler')
+      ('Kids Kokum Punch',              'Kids Ruby Citrus Cooler'),
+      -- Harvest Vegetables / Roasted Vegetables are the same underlying
+      -- ingredient under two raw display names (owner-confirmed 2026-09-11) --
+      -- club all three portion variants same as the Kids-drink renames above.
+      ('Harvest Vegetables',            'Roasted Vegetables'),
+      ('Extra Harvest Vegetables',      'Extra Roasted Vegetables'),
+      ('1/2 Harvest Vegetables',        '1/2 Roasted Vegetables')
     )
     SELECT
       fol.business_date,
