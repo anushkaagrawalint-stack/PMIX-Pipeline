@@ -113,7 +113,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         db.close_pull_run(conn, run_id, "success", fetched, landed)
         log.info("run %d complete: fetched=%d landed=%d", run_id, fetched, landed)
         cmd_validate(args)
-        cmd_consolidate_names(args)
     except Exception as e:
         db.close_pull_run(conn, run_id, "failed", fetched, landed, error=str(e))
         raise
@@ -173,7 +172,6 @@ def cmd_reparse(args: argparse.Namespace) -> None:
     conn.close()
     if total and getattr(args, "merge", False):
         cmd_validate(args)
-        cmd_consolidate_names(args)
 
 
 def cmd_precompute(args: argparse.Namespace) -> None:
@@ -194,7 +192,6 @@ def cmd_merge(args: argparse.Namespace) -> None:
     conn.close()
     log.info("merge complete")
     cmd_validate(args)
-    cmd_consolidate_names(args)
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
@@ -1016,6 +1013,27 @@ _NAME_CONSOLIDATIONS = [
 
 
 def cmd_consolidate_names(args: argparse.Namespace) -> None:
+    """RETIRED 2026-09-28 — name consolidation now belongs to the dashboard.
+
+    This rewrote public.fact_order_lines.canonical_name in place, which made a
+    merge permanent and invisible: there was no record of the decision and no way
+    to undo it. Those calls are gone from the pull/merge/backfill paths.
+
+    Every pair in _NAME_CONSOLIDATIONS has been migrated into
+    analytics.name_merge_decisions, which the dashboard reads for all item-name
+    grouping. New merges are decided in the Renames Audit tab, are visible there,
+    and can be undone. Re-running this would silently re-apply a destructive
+    rewrite outside that record, so it refuses.
+    """
+    raise SystemExit(
+        "consolidate-names is retired. Item-name merging is now handled in the "
+        "dashboard's Renames Audit tab (analytics.name_merge_decisions), where "
+        "each decision is recorded and reversible. The pairs previously listed "
+        "here have already been migrated there."
+    )
+
+
+def _cmd_consolidate_names_legacy(args: argparse.Namespace) -> None:
     conn = db.connect()
     total = 0
     with conn.cursor() as cur:
@@ -1121,7 +1139,7 @@ def main() -> None:
                    help="load all P*ItemCost.xlsx from Data/R365Data/ItemCost/ into analytics.r365_item_cost"
                    ).set_defaults(func=cmd_load_r365_item_cost)
     sub.add_parser("consolidate-names",
-                   help="apply approved name consolidations directly to public.fact_order_lines.canonical_name"
+                   help="RETIRED — item-name merging moved to the dashboard's Renames Audit tab"
                    ).set_defaults(func=cmd_consolidate_names)
     sub.add_parser("backfill-option-groups",
                    help="backfill option_group_guid/name on fact_modifiers from raw order history"

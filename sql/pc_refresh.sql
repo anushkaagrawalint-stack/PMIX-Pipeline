@@ -192,6 +192,10 @@ CREATE TABLE IF NOT EXISTS analytics.pc_modifier_daily_new (
       include_cmc    BOOLEAN NOT NULL,
       byo_type       TEXT,
       in_byo_scope   BOOLEAN NOT NULL,
+      -- Toast's own modifier-group name, carried through so the dashboard can fall
+      -- back to it when our lookup has no entry for a modifier, instead of dumping
+      -- everything unmatched into "Topping" (owner request 2026-09-28).
+      toast_group    TEXT,
       qty            NUMERIC NOT NULL
     );
 
@@ -331,6 +335,10 @@ INSERT INTO analytics.pc_modifier_daily_new
         OR (fol.canonical_name = 'Homemade Juice' AND fm.option_group_name = 'Flavor?')
         OR (fol.canonical_name = 'Maine Root Fountain Soda' AND fm.option_group_name = 'Maine Root Flavor?')
       , FALSE)                                             AS in_byo_scope,
+      -- Base group only: Toast suffixes the parent item onto the group name
+      -- ("Get Saucy - Chicken Tikka Bowl"), which would otherwise split one
+      -- section into dozens of near-identical ones.
+      NULLIF(TRIM(SPLIT_PART(fm.option_group_name, ' - ', 1)), '') AS toast_group,
       SUM(fm.quantity)                                     AS qty
     FROM public.fact_modifiers fm
     JOIN public.fact_order_lines fol ON fm.parent_selection = fol.selection_guid
@@ -403,7 +411,7 @@ INSERT INTO analytics.pc_modifier_daily_new
           'DELIVERY','3PD OPEN MARKUP','CATERING','CATERING - 3PD','OFFSITE POP-UPS','EZCATER')
         OR (fol.menu_name IS NULL AND fol.sales_category IN ('Food','Drink'))
       )
-    GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13;
+    GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14;
 
 CREATE INDEX IF NOT EXISTS pc_mod_daily_new_date ON analytics.pc_modifier_daily_new (business_date);
 
