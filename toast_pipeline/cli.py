@@ -671,6 +671,24 @@ _KNOWN_CLEAN_NAME_FIXES: dict[str, str] = {
     "MI Harvest Veggies - Classic": "Roasted Vegetables - Classic",
     "MI Harvest Veggies - Party Pack": "Roasted Vegetables - Party Pack",
     "MI Harvest Vegetables - Catering - Additional Item": "Catering - Additional Item - Roasted Vegetables",
+
+    # Pick 2 Combo Plate mains (owner-confirmed 2026-10-13) — P02-P08's sheets
+    # filed these under the raw "CP <protein> - Half Portion" name instead of
+    # the "<protein> - Pick 2 Combo" name fact_modifiers actually uses, so the
+    # modifier-cost lookup silently missed them and every period showed $0 main
+    # cost. P09 onward evidently exports the correct name already; this is a
+    # forward-looking guard in case a future sheet regresses. Outside the
+    # catering-only restriction above — asked first, per that rule.
+    "MI CP Aloo Gobhi - Half Portion": "Aloo Gobhi - Pick 2 Combo",
+    "MI CP Butter Chicken - Half Portion": "Butter Chicken - Pick 2 Combo",
+    "MI CP Chicken Curry - Half Portion": "Chicken Curry - Pick 2 Combo",
+    "MI CP Chicken Tikka Masala - Half Portion": "Chicken Tikka Masala - Pick 2 Combo",
+    "MI CP Coconut Veggie Curry - Half Portion": "Coconut Veggie Curry - Pick 2 Combo",
+    "MI CP Lamb Kofta Korma - Half Portion": "Lamb Kofta Korma - Pick 2 Combo",
+    "MI CP Paneer Butter Masala - Half Portion": "Paneer Butter Masala - Pick 2 Combo",
+    "MI CP Paneer Tikka Masala - Half Portion": "Paneer Tikka Masala - Pick 2 Combo",
+    "MI CP Saag Chole - Half Portion": "Saag Chole - Pick 2 Combo",
+    "MI CP Saag Paneer - Half Portion": "Saag Paneer - Pick 2 Combo",
 }
 
 
