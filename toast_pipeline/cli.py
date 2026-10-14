@@ -723,11 +723,40 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
         wb = openpyxl.load_workbook(path)
         ws = wb.active
 
+        # Same class of bug as r365-item-cost (owner-reported 2026-10-14): a
+        # hardcoded column index silently reads the wrong cell if the report
+        # ever reorders, parses it as a cost, fails, and nulls it with no error.
+        # RecipeName/cleaned Name/Cost/CostPerPortion have real header names, so
+        # locate those four by name instead of a fixed index. portion_unit and
+        # cogs_account can't get the same protection — this report (SSRS) gives
+        # them generic placeholder headers ("Textbox28" etc.) that carry no
+        # identifying information, so there's nothing stable to match on; they
+        # stay positional. The cost columns are what actually drives dollar
+        # figures downstream, so that's where this protection matters most.
+        # R365 exports Cost/CostPerPortion twice (likely an "as formulated" /
+        # "as purchased" pair) — the second occurrence (Cost1/CostPerPortion1)
+        # is the one this loader has always used; fall back to the first if a
+        # future export drops the duplicate.
+        header = [str(c.value).strip() if c.value else "" for c in ws[1]]
+        def _col(*names: str) -> int:
+            for name in names:
+                for i, h in enumerate(header):
+                    if h.lower() == name.lower():
+                        return i
+            raise SystemExit(f"{path.name}: none of {names} found in header row — {header}")
+        # clean_name's own header wording has drifted across periods too:
+        # "Clean Name" (P01-P06), "Cleaned Named" [sic] (P07-P08), "cleaned
+        # Name" (P09) — accept all three seen so far.
+        recipe_col = _col("RecipeName")
+        clean_col  = _col("cleaned Name", "Clean Name", "Cleaned Named")
+        cost_col   = _col("Cost1", "Cost")
+        cpp_col    = _col("CostPerPortion1", "CostPerPortion")
+
         seen: set[str] = set()
         rows = []
         missing_clean_name = 0
         for row in ws.iter_rows(min_row=2, values_only=True):
-            recipe_name = str(row[0]).strip() if row[0] else None
+            recipe_name = str(row[recipe_col]).strip() if row[recipe_col] else None
             if not recipe_name or recipe_name in seen:
                 continue
             seen.add(recipe_name)
@@ -740,7 +769,7 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
                 except InvalidOperation:
                     return None
 
-            clean_name = str(row[1]).strip() if len(row) > 1 and row[1] else None
+            clean_name = str(row[clean_col]).strip() if len(row) > clean_col and row[clean_col] else None
             if not clean_name:
                 missing_clean_name += 1
                 clean_name = _derive_modifier_clean_name(recipe_name)
@@ -757,8 +786,8 @@ def cmd_load_r365_modifier_cost(args: argparse.Namespace) -> None:
                 clean_name,
                 str(row[14]).strip() if row[14] else None,  # portion_unit
                 str(row[16]).strip() if row[16] else None,  # cogs_account
-                _cost(row[25]),                             # total_cost
-                _cost(row[26]),                             # cost_per_portion
+                _cost(row[cost_col]),                       # total_cost
+                _cost(row[cpp_col]),                        # cost_per_portion
             ))
 
         if missing_clean_name:
@@ -884,6 +913,24 @@ def cmd_load_r365_item_cost(args: argparse.Namespace) -> None:
         wb = openpyxl.load_workbook(path)
         ws = wb["Sheet1"]
 
+        # Avg Cost's position isn't stable across periods — P09's sheet inserted an
+        # "R365 Name" column right before it, shifting it from index 6 to 7. A
+        # hardcoded row[6] silently read that text column instead, failed to parse
+        # as a Decimal, and nulled every row's cost for the whole period without
+        # any error (owner-reported 2026-10-14: P09 upload showed real costs in
+        # Excel but $0 everywhere in the dashboard). Locate it by header name
+        # instead so a future reordering can't do this again.
+        # P07's export happened to call this column "Avg Cost1" instead of "Avg
+        # Cost" (every other period so far uses "Avg Cost") — accept both.
+        header = [str(c.value).strip() if c.value else "" for c in ws[1]]
+        try:
+            cost_col = next(
+                i for i, h in enumerate(header)
+                if h.strip().lower() in ("avg cost", "avg cost1")
+            )
+        except StopIteration:
+            raise SystemExit(f"{path.name}: no 'Avg Cost' column found in header row — {header}")
+
         rows = []
         for row in ws.iter_rows(min_row=2, values_only=True):
             menu      = str(row[0]).strip() if row[0] else None
@@ -891,7 +938,7 @@ def cmd_load_r365_item_cost(args: argparse.Namespace) -> None:
             if not menu or not item_name:
                 continue
 
-            raw_cost = str(row[6]).strip().lstrip("$") if row[6] else None
+            raw_cost = str(row[cost_col]).strip().lstrip("$") if row[cost_col] else None
             try:
                 avg_cost = Decimal(raw_cost) if raw_cost else None
             except InvalidOperation:
